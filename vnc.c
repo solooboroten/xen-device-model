@@ -208,6 +208,8 @@ static void vnc_write_u8(VncState *vs, uint8_t value);
 static void vnc_flush(VncState *vs);
 static void vnc_update_client(void *opaque);
 static void vnc_client_read(void *opaque);
+static void vnc_disconnect_start(VncState *vs);
+static void vnc_disconnect_finish(VncState *vs);
 
 static void vnc_colordepth(VncState *vs);
 
@@ -644,9 +646,6 @@ static void send_framebuffer_update(VncState *vs, int x, int y, int w, int h)
 
 static void vnc_copy(VncState *vs, int src_x, int src_y, int dst_x, int dst_y, int w, int h)
 {
-    vs->force_update = 1;
-    vnc_update_client(vs);
-
     vnc_write_u8(vs, 0);  /* msg id */
     vnc_write_u8(vs, 0);
     vnc_write_u16(vs, 1); /* number of rects */
@@ -659,13 +658,22 @@ static void vnc_copy(VncState *vs, int src_x, int src_y, int dst_x, int dst_y, i
 static void vnc_dpy_copy(DisplayState *ds, int src_x, int src_y, int dst_x, int dst_y, int w, int h)
 {
     VncDisplay *vd = ds->opaque;
-    VncState *vs = vd->clients;
-    while (vs != NULL) {
+    VncState *vs, *vn;
+
+    for (vs = vd->clients; vs != NULL; vs = vn) {
+        vn = vs->next;
+        if (vnc_has_feature(vs, VNC_FEATURE_COPYRECT)) {
+            vs->force_update = 1;
+            vnc_update_client(vs);
+            /* vs might be free()ed here */
+        }
+    }
+
+    for (vs = vd->clients; vs != NULL; vs = vs->next) {
         if (vnc_has_feature(vs, VNC_FEATURE_COPYRECT))
             vnc_copy(vs, src_x, src_y, dst_x, dst_y, w, h);
         else /* TODO */
             vnc_update(vs, dst_x, dst_y, w, h);
-        vs = vs->next;
     }
 }
 
@@ -790,6 +798,8 @@ static void vnc_update_client(void *opaque)
 
     if (vs->csock != -1) {
         qemu_mod_timer(vs->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
+    } else {
+        vnc_disconnect_finish(vs);
     }
 
 }
@@ -875,40 +885,10 @@ static int vnc_client_io_error(VncState *vs, int ret, int last_errno)
             }
         }
 
-	VNC_DEBUG("Closing down client sock %d %d\n", ret, ret < 0 ? last_errno : 0);
-	qemu_set_fd_handler2(vs->csock, NULL, NULL, NULL, NULL);
-	closesocket(vs->csock);
-        qemu_del_timer(vs->timer);
-        qemu_free_timer(vs->timer);
-        if (vs->input.buffer) qemu_free(vs->input.buffer);
-        if (vs->output.buffer) qemu_free(vs->output.buffer);
-#ifdef CONFIG_VNC_TLS
-	if (vs->tls_session) {
-	    gnutls_deinit(vs->tls_session);
-	    vs->tls_session = NULL;
-	}
-#endif /* CONFIG_VNC_TLS */
-        audio_del(vs);
+        VNC_DEBUG("Closing down client sock: ret %d, errno %d\n",
+                  ret, ret < 0 ? last_errno : 0);
+        vnc_disconnect_start(vs);
 
-        VncState *p, *parent = NULL;
-        for (p = vs->vd->clients; p != NULL; p = p->next) {
-            if (p == vs) {
-                if (parent)
-                    parent->next = p->next;
-                else
-                    vs->vd->clients = p->next;
-                break;
-            }
-            parent = p;
-        }
-        if (!vs->vd->clients)
-            dcl->idle = 1;
-
-        qemu_free(vs->server.ds->data);
-        qemu_free(vs->server.ds);
-        qemu_free(vs->guest.ds);
-        qemu_free(vs);
-  
 	return 0;
     }
     return ret;
@@ -916,7 +896,8 @@ static int vnc_client_io_error(VncState *vs, int ret, int last_errno)
 
 static void vnc_client_error(VncState *vs)
 {
-    vnc_client_io_error(vs, -1, EINVAL);
+    VNC_DEBUG("Closing down client sock: protocol error\n");
+    vnc_disconnect_start(vs);
 }
 
 static void vnc_client_write(void *opaque)
@@ -976,8 +957,11 @@ static void vnc_client_read(void *opaque)
 #endif /* CONFIG_VNC_TLS */
 	ret = recv(vs->csock, buffer_end(&vs->input), 4096, 0);
     ret = vnc_client_io_error(vs, ret, socket_error());
-    if (!ret)
+    if (!ret) {
+        if (vs->csock == -1)
+            vnc_disconnect_finish(vs);
 	return;
+    }
 
     vs->input.offset += ret;
 
@@ -986,8 +970,10 @@ static void vnc_client_read(void *opaque)
 	int ret;
 
 	ret = vs->read_handler(vs, vs->input.buffer, len);
-	if (vs->csock == -1)
+	if (vs->csock == -1) {
+            vnc_disconnect_finish(vs);
 	    return;
+        }
 
 	if (!ret) {
 	    memmove(vs->input.buffer, vs->input.buffer + len, (vs->input.offset - len));
@@ -1002,7 +988,7 @@ static void vnc_write(VncState *vs, const void *data, size_t len)
 {
     buffer_reserve(&vs->output, len);
 
-    if (buffer_empty(&vs->output)) {
+    if (vs->csock != -1 && buffer_empty(&vs->output)) {
 	qemu_set_fd_handler2(vs->csock, NULL, vnc_client_read, vnc_client_write, vs);
     }
 
@@ -1043,7 +1029,7 @@ static void vnc_write_u8(VncState *vs, uint8_t value)
 
 static void vnc_flush(VncState *vs)
 {
-    if (vs->output.offset)
+    if (vs->csock != -1 && vs->output.offset)
 	vnc_client_write(vs);
 }
 
@@ -1069,6 +1055,43 @@ static uint32_t read_u32(uint8_t *data, size_t offset)
 	    (data[offset + 2] << 8) | data[offset + 3]);
 }
 
+static void vnc_disconnect_start(VncState *vs)
+{
+    if (vs->csock == -1)
+        return;
+    qemu_set_fd_handler2(vs->csock, NULL, NULL, NULL, NULL);
+    closesocket(vs->csock);
+    vs->csock = -1;
+}
+
+static void vnc_disconnect_finish(VncState *vs)
+{
+    qemu_del_timer(vs->timer);
+    qemu_free_timer(vs->timer);
+    if (vs->input.buffer) qemu_free(vs->input.buffer);
+    if (vs->output.buffer) qemu_free(vs->output.buffer);
+    audio_del(vs);
+
+    VncState *p, *parent = NULL;
+    for (p = vs->vd->clients; p != NULL; p = p->next) {
+        if (p == vs) {
+            if (parent)
+                parent->next = p->next;
+            else
+                vs->vd->clients = p->next;
+            break;
+        }
+        parent = p;
+    }
+    if (!vs->vd->clients)
+        dcl->idle = 1;
+
+    qemu_free(vs->server.ds->data);
+    qemu_free(vs->server.ds);
+    qemu_free(vs->guest.ds);
+    qemu_free(vs);
+}
+
 #ifdef CONFIG_VNC_TLS
 static ssize_t vnc_tls_push(gnutls_transport_ptr_t transport,
                             const void *data,
@@ -1085,7 +1108,6 @@ static ssize_t vnc_tls_push(gnutls_transport_ptr_t transport,
     }
     return ret;
 }
-
 
 static ssize_t vnc_tls_pull(gnutls_transport_ptr_t transport,
                             void *data,
@@ -2308,11 +2330,13 @@ static void vnc_connect(VncDisplay *vd, int csock)
     vnc_write(vs, "RFB 003.008\n", 12);
     vnc_flush(vs);
     vnc_read_when(vs, protocol_version, 12);
-    vnc_update_client(vs);
     reset_keys(vs);
 
     vs->next = vd->clients;
     vd->clients = vs;
+
+    vnc_update_client(vs);
+    /* vs might be free()ed here */
 }
 
 static void vnc_listen_read(void *opaque)

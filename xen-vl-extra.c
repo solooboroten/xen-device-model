@@ -75,15 +75,19 @@ void do_loadvm(const char *name)
     f = qemu_fopen(name, "rb");
     if (!f) {
         fprintf(logfile, "Could not open VM state file\n");
-        goto the_end;
+        abort();
     }
 
     ret = qemu_loadvm_state(f);
     qemu_fclose(f);
     if (ret < 0) {
+        char buf[strlen(name) + 16];
         fprintf(logfile, "Error %d while loading savevm file '%s'\n",
                 ret, name);
-        goto the_end; 
+        snprintf(buf, sizeof(buf), "%s-broken", name);
+        fprintf(stderr, "Linking %s -> %s\n", name, buf);
+        link(name, buf);
+        abort();
     }
 
 #if 0 
@@ -93,7 +97,6 @@ void do_loadvm(const char *name)
 #endif
 
 
- the_end:
     if (saved_vm_running)
         vm_start();
 }

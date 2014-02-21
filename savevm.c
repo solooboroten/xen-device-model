@@ -909,8 +909,11 @@ int qemu_loadvm_state(QEMUFile *f)
     int ret;
 
     v = qemu_get_be32(f);
-    if (v != QEMU_VM_FILE_MAGIC)
+    if (v != QEMU_VM_FILE_MAGIC) {
+        fprintf(stderr, "Bad savevm magic %u != %u\n",
+                v, QEMU_VM_FILE_MAGIC);
         return -EINVAL;
+    }
 
     loadvm_version_id = qemu_get_be32(f);
     if (loadvm_version_id < QEMU_VM_FILE_VERSION)

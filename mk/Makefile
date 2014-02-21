@@ -74,3 +74,10 @@ $(RPM_BUILD_COOKIE): $(RPM_DIRECTORIES) $(SOURCES)
 	@touch $@
 
 $(MY_SOURCES)/MANIFEST: $(MY_SOURCES_DIRSTAMP) $(RPM_BUILD_COOKIE)
+	( echo "$(COMPONENT) gpl file $(RPM_SRPMSDIR)/xen-device-model-$(IOEMU_VERSION)-$(IOEMU_RELEASE).src.rpm" ; \
+        ) >$@
+
+.PHONY: sources
+sources: $(MY_SOURCES)/MANIFEST
+	@ :
+

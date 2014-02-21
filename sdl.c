@@ -57,6 +57,7 @@ static SDL_Cursor *sdl_cursor_hidden;
 static int absolute_enabled = 0;
 static int opengl_enabled;
 int grab_disabled = 0; /* If true, prevents any grabbing of mouse and keyboard */
+int mouse_active = SDL_ENABLE;
 static uint8_t allocator;
 static SDL_PixelFormat host_format;
 static int scaling_active = 0;
@@ -800,7 +801,8 @@ static void sdl_refresh(DisplayState *ds)
                         dz = 1;
                     }
 #endif
-                    sdl_send_mouse_event(0, 0, dz, state);
+                    if (mouse_active == SDL_ENABLE)
+                        sdl_send_mouse_event(0, 0, dz, state);
                 }
             }
             break;
@@ -808,6 +810,14 @@ static void sdl_refresh(DisplayState *ds)
             if (gui_grab && ev->active.state == SDL_APPINPUTFOCUS &&
                 !ev->active.gain && !gui_fullscreen_initial_grab) {
                 sdl_grab_end();
+            }
+            /* Send mouse pointer to oblivion on focus change */
+            if ((ev->active.state == SDL_APPINPUTFOCUS) ||
+                (ev->active.state == SDL_APPMOUSEFOCUS))
+            {
+                mouse_active = ev->active.gain;
+                if (mouse_active != SDL_ENABLE)
+                    kbd_mouse_event(0x7FFE, 0x7FFE, 0, 0);
             }
 	    if (ev->active.state & SDL_APPACTIVE) {
 		if (ev->active.gain) {

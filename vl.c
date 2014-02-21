@@ -4250,6 +4250,7 @@ enum {
     QEMU_OPTION_no_quit,
     QEMU_OPTION_sdl,
     QEMU_OPTION_nograb,
+    QEMU_OPTION_geometry,
     QEMU_OPTION_portrait,
     QEMU_OPTION_vga,
     QEMU_OPTION_full_screen,
@@ -4379,6 +4380,7 @@ static const QEMUOption qemu_options[] = {
     { "no-quit", 0, QEMU_OPTION_no_quit },
     { "sdl", 0, QEMU_OPTION_sdl },
     { "nograb", 0, QEMU_OPTION_nograb },
+    { "geometry", HAS_ARG, QEMU_OPTION_geometry },
 #endif
     { "portrait", 0, QEMU_OPTION_portrait },
     { "vga", HAS_ARG, QEMU_OPTION_vga },
@@ -5360,6 +5362,28 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_nograb:
                 grab_disabled = 1;
+                break;
+            case QEMU_OPTION_geometry:
+                {
+                    const char *p;
+                    int w, h;
+                    p = optarg;
+                    w = strtol(p, (char **)&p, 10);
+                    if (w <= 0) {
+geometry_error:
+                        fprintf(stderr, "qemu: invalid display geometry\n");
+                        exit(1);
+                    }
+                    if (*p != 'x')
+                        goto geometry_error;
+                    p++;
+                    h = strtol(p, (char **)&p, 10);
+                    if ((h <= 0) || (*p != '\0'))
+                        goto geometry_error;
+
+                    display_width = w;
+                    display_height = h;
+                }
                 break;
 #endif
 

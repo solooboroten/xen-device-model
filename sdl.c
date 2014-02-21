@@ -61,6 +61,8 @@ int mouse_active = SDL_ENABLE;
 static uint8_t allocator;
 static SDL_PixelFormat host_format;
 static int scaling_active = 0;
+int display_width;
+int display_height;
 
 #ifdef CONFIG_OPENGL
 static GLint tex_format;
@@ -940,5 +942,12 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame, int openg
             gui_fullscreen_initial_grab = 1;
             sdl_grab_start();
         }
+    }
+    if (display_width || display_height) {
+        int bpp = host_format.BitsPerPixel;
+        if (bpp != 16 && bpp != 32)
+            bpp = 32;
+        do_sdl_resize(display_width, display_height, bpp);
+        scaling_active = 1;
     }
 }

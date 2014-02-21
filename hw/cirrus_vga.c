@@ -1701,6 +1701,18 @@ cirrus_hook_write_cr(CirrusVGAState * s, unsigned reg_index, int reg_value)
     case 0x1c:			// Sync Adjust and Genlock
     case 0x1d:			// Overlay Extended Control
 	s->cr[reg_index] = reg_value;
+    if(reg_index == 0x1b) {
+        static int cr1b = 0;
+        if (cr1b != s->cr[0x1b]) {
+            int width, height;
+            int line_offset, start_addr, line_compare;
+            s->get_resolution((VGAState *)s, &width, &height);
+            s->get_offsets((VGAState *)s, &line_offset, &start_addr, &line_compare);
+            memset (s->vram_ptr + (start_addr * 4), 0x00, line_offset * height);
+            cr1b = s->cr[0x1b];
+            fprintf(stderr, "cirrus: blanking the screen line_offset=%d height=%d\n", line_offset, height);
+        }
+    }
 #ifdef DEBUG_CIRRUS
 	printf("cirrus: handled outport cr_index %02x, cr_value %02x\n",
 	       reg_index, reg_value);
@@ -2872,6 +2884,7 @@ static void vga_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 	printf("vga: write GR%x = 0x%02x\n", s->gr_index, val);
 #endif
 	s->gr[s->gr_index] = val & gr_mask[s->gr_index];
+
 	break;
     case 0x3b4:
     case 0x3d4:

@@ -55,6 +55,7 @@
 #include <linux/cdrom.h>
 #include <linux/fd.h>
 #include <sys/mount.h>
+#include <sys/mount.h>
 #endif
 #ifdef __FreeBSD__
 #include <signal.h>
@@ -161,6 +162,10 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
             return ret;
         }
     }
+#ifndef CONFIG_STUBDOM
+    /* Invalidate buffer cache for this device. */
+    ioctl(s->fd, BLKFLSBUF, 0);
+#endif
     return 0;
 }
 
@@ -837,8 +842,13 @@ static int raw_create(const char *filename, int64_t total_size,
 static int raw_flush(BlockDriverState *bs)
 {
     BDRVRawState *s = bs->opaque;
+    qemu_aio_flush();
     if (fsync(s->fd))
         return errno;
+#ifndef CONFIG_STUBDOM
+    /* Invalidate buffer cache for this device. */
+    ioctl(s->fd, BLKFLSBUF, 0);
+#endif
     return 0;
 }
 

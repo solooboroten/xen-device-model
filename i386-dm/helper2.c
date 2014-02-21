@@ -592,6 +592,10 @@ int main_loop(void)
         do_savevm(qemu_file);
         free(qemu_file);
 
+        ide_unplug_all_harddisks();
+        pci_unplug_all_netifs();
+        net_tap_shutdown_all();
+
         xenstore_record_dm_state("paused");
 
         /* Wait to be allowed to continue */

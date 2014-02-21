@@ -956,6 +956,7 @@ static int tap_open(char *ifname, int ifname_size)
     struct ifreq ifr;
     int fd, ret;
 
+retry:
     TFR(fd = open("/dev/net/tun", O_RDWR));
     if (fd < 0) {
         fprintf(stderr, "warning: could not open /dev/net/tun: no virtual network emulation\n");
@@ -971,7 +972,11 @@ static int tap_open(char *ifname, int ifname_size)
     if (ret != 0) {
         fprintf(stderr, "warning: could not configure /dev/net/tun: no virtual network emulation\n");
         close(fd);
-        return -1;
+	/* Wait for 1/10th of a second -- then retry.
+	 * Workaround for tap%d name resolution race in the kernel.
+	 */
+	usleep(100000);
+        goto retry;
     }
     pstrcpy(ifname, ifname_size, ifr.ifr_name);
     fcntl(fd, F_SETFL, O_NONBLOCK);

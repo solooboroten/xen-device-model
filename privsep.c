@@ -236,8 +236,17 @@ receive_fd(int sock)
         msg.msg_control = tmp;
         msg.msg_controllen = sizeof(tmp);
 
+retry:
         if ((n = recvmsg(sock, &msg, 0)) == -1)
-                warn("%s: recvmsg", "receive_fd");
+	{
+	    warn("%s: recvmsg", "receive_fd");
+	    if ( errno == EINTR )
+	      { 
+		warn("%s: Interrupted system call.  termsig %d.  Retrying.\n",
+		     __func__, termsig);
+		goto retry;
+	      }
+	}
         if (n != sizeof(int))
                 warnx("%s: recvmsg: expected received 1 got %zd",
                       "receive_fd", n);

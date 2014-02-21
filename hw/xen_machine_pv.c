@@ -47,11 +47,6 @@ static void xen_init_pv(ram_addr_t ram_size, int vga_ram_size,
     CPUState *env;
     uint32_t domid_target;
 
-#ifndef CONFIG_STUBDOM
-    /* Initialize tapdisk client */
-    init_blktap();
-#endif
-
     /* Initialize a dummy CPU */
     if (cpu_model == NULL) {
 #ifdef TARGET_X86_64

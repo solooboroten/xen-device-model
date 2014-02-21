@@ -1520,9 +1520,11 @@ cirrus_hook_write_gr(CirrusVGAState * s, unsigned reg_index, int reg_value)
 #endif
     switch (reg_index) {
     case 0x00:			// Standard VGA, BGCOLOR 0x000000ff
+	s->gr[reg_index] = reg_value & gr_mask[reg_index];
 	s->cirrus_shadow_gr0 = reg_value;
 	return CIRRUS_HOOK_NOT_HANDLED;
     case 0x01:			// Standard VGA, FGCOLOR 0x000000ff
+	s->gr[reg_index] = reg_value & gr_mask[reg_index];
 	s->cirrus_shadow_gr1 = reg_value;
 	return CIRRUS_HOOK_NOT_HANDLED;
     case 0x02:			// Standard VGA

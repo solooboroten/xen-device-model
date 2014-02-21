@@ -21,7 +21,7 @@ $(MY_OBJ_DIR)/version.inc:
 	awk -F. '{ print "REPO_VERSION=" $$0; }' \
 		< $(REPO_STAMP) >> $@
 	$(call pq_cset_number,$(REPO_NAME)) >> $@
-	echo IOEMU_VERSION := \$$\(PRODUCT_VERSION\) >> $@
+	echo IOEMU_VERSION := \$$\(PLATFORM_VERSION\) >> $@
 	echo IOEMU_RELEASE := \$$\(CSET_NUMBER\) >> $@
 
 CHANGELOG_DATE    := $(shell LANG=C date +"%a %b %d %Y")

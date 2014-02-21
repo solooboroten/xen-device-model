@@ -646,6 +646,22 @@ static int pci_devfn_load(QEMUFile* f, void* opaque, int version_id)
     return 0;
 }
 
+/* Xen-3.4 compatibility (Cowley and before):
+ * Read the section, but don't do anything with it. */
+static int pcislots_load_dummy(QEMUFile* f, void* opaque, int version_id)
+{
+    int i;
+    uint8_t dummy;
+    if (version_id != 1)
+        return -EINVAL;
+    for ( i = 0; i < NR_PCI_DEV; i++ ) {
+        qemu_get_8s(f, &dummy);
+    }
+    qemu_get_8s(f, &dummy);
+    qemu_get_8s(f, &dummy);
+    return 0;
+}
+
 static void php_devfn_init(void)
 {
     int i;
@@ -663,6 +679,9 @@ static void php_devfn_init(void)
     register_ioport_write(ACPI_PHP_IO_ADDR, NR_PHP_SLOT_REG + 2, 1,
                           acpi_php_writeb, &php_devfn);
     register_savevm("pci_devfn", 0, 1, pci_devfn_save, pci_devfn_load,
+                    &php_devfn);
+    /* Compatibility with Xen 3.4 (Cowley and before) */
+    register_savevm("pcislots", 0, 1, NULL, pcislots_load_dummy,
                     &php_devfn);
 }
 #endif /* CONFIG_PASSTHROUGH */

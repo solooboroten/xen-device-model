@@ -1333,6 +1333,28 @@ void xenstore_read_vncpasswd(int domid, char *pwbuf, size_t pwbuflen)
     free(buf);
 }
 
+/* Advertise through xenstore that the device model is up and the
+   domain can be started. */
+void xenstore_dm_finished_startup(void)
+{
+    char *path;
+    char *buf = NULL;
+
+    path = xs_get_domain_path(xsh, domid);
+    if (!path) {
+        fprintf(logfile, "xs_get_domain_path() failed.\n");
+        goto out;
+    }
+    if (pasprintf(&buf, "%s/device-misc/dm-ready", path) == -1) {
+        fprintf(logfile, "pasprintf failed to get path.\n");
+        goto out;
+    }
+    if (xs_write(xsh, XBT_NULL, buf, "1", 1) == 0)
+        fprintf(logfile, "xs_write() dm-ready failed\n");
+ out:
+    free(buf);
+    free(path);
+}
 
 /*
  * get all device instances of a certain type

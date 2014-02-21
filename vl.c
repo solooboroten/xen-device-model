@@ -5964,6 +5964,9 @@ int main(int argc, char **argv, char **envp)
     if (loadvm)
         do_loadvm(loadvm);
 
+    fprintf(logfile, "releasing VM\n");
+    xenstore_dm_finished_startup();
+
     /* init USB devices */
     if (usb_enabled) {
         for(i = 0; i < usb_devices_index; i++) {

@@ -574,8 +574,8 @@ void pci_xen_platform_init(PCIBus *bus)
 
     pch->command = 3; /* IO and memory access */
     pch->api = 0;
-    pch->subclass = 0x80; /* Other */
-    pch->class = 0xff; /* Unclassified device class */
+    pch->class = 0x1; /* Storage device class */
+    pch->subclass = 0x0; /* SCSI subclass */
     pch->header_type = 0;
     pch->interrupt_pin = 1;
 

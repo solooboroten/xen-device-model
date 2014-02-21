@@ -146,7 +146,7 @@ AUDIO_OBJS+= wavcapture.o
 OBJS+=$(addprefix audio/, $(AUDIO_OBJS))
 
 ifdef CONFIG_SDL
-OBJS+=sdl.o x_keymap.o
+OBJS+=sdl.o sdl_zoom.o x_keymap.o
 endif
 ifdef CONFIG_CURSES
 OBJS+=curses.o
@@ -169,7 +169,9 @@ LIBS+=$(VDE_LIBS)
 
 cocoa.o: cocoa.m
 
-sdl.o: sdl.c keymaps.c sdl_keysym.h
+sdl_zoom.o: sdl_zoom.c sdl_zoom.h
+
+sdl.o: sdl.c keymaps.c sdl_keysym.h sdl_zoom.h
 
 sdl.o audio/sdlaudio.o: CFLAGS += $(SDL_CFLAGS)
 

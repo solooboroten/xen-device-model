@@ -25,6 +25,7 @@
 #include "console.h"
 #include "sysemu.h"
 #include "x_keymap.h"
+#include "sdl_zoom.h"
 
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -56,7 +57,8 @@ static SDL_Cursor *sdl_cursor_hidden;
 static int absolute_enabled = 0;
 static int opengl_enabled;
 static uint8_t allocator;
-static uint8_t hostbpp;
+static SDL_PixelFormat host_format;
+static int scaling_active = 0;
 
 #ifdef CONFIG_OPENGL
 static GLint tex_format;
@@ -144,16 +146,24 @@ static void opengl_update(DisplayState *ds, int x, int y, int w, int h)
 
 static void sdl_update(DisplayState *ds, int x, int y, int w, int h)
 {
-    //    printf("updating x=%d y=%d w=%d h=%d\n", x, y, w, h);i
+    //    printf("updating x=%d y=%d w=%d h=%d\n", x, y, w, h);
+    SDL_Rect rec;
+    rec.x = x;
+    rec.y = y;
+    rec.w = w;
+    rec.h = h;
+
     if (guest_screen) {
-        SDL_Rect rec;
-        rec.x = x;
-        rec.y = y;
-        rec.w = w;
-        rec.h = h;
-        SDL_BlitSurface(guest_screen, &rec, real_screen, &rec);
-    }
-    SDL_UpdateRect(real_screen, x, y, w, h);
+        if (!scaling_active) {
+            SDL_BlitSurface(guest_screen, &rec, real_screen, &rec);
+        } else {
+            if (sdl_zoom_blit(guest_screen, real_screen, SMOOTHING_ON, &rec) < 0) {
+                fprintf(stderr, "Zoom blit failed: %s\n", SDL_GetError());
+                exit(1);
+            }
+        }
+    } 
+    SDL_UpdateRect(real_screen, rec.x, rec.y, rec.w, rec.h);
 }
 
 static void sdl_setdata(DisplayState *ds)
@@ -182,7 +192,7 @@ static void do_sdl_resize(int new_width, int new_height, int bpp)
         flags = SDL_OPENGL|SDL_RESIZABLE;
     else
 #endif
-        flags = SDL_HWSURFACE|SDL_ASYNCBLIT|SDL_HWACCEL;
+        flags = SDL_HWSURFACE|SDL_ASYNCBLIT|SDL_HWACCEL|SDL_RESIZABLE;
 
     if (gui_fullscreen)
         flags |= SDL_FULLSCREEN;
@@ -234,7 +244,10 @@ static void do_sdl_resize(int new_width, int new_height, int bpp)
 static void sdl_resize(DisplayState *ds)
 {
     if  (!allocator) {
-        do_sdl_resize(ds_get_width(ds), ds_get_height(ds), 0);
+        if (!scaling_active)
+            do_sdl_resize(ds_get_width(ds), ds_get_height(ds), 0);
+        else if (real_screen->format->BitsPerPixel != ds_get_bits_per_pixel(ds))
+            do_sdl_resize(real_screen->w, real_screen->h, ds_get_bits_per_pixel(ds));
         dcl->dpy_setdata(ds);
     } else {
         if (guest_screen != NULL) {
@@ -287,8 +300,26 @@ static DisplaySurface* sdl_create_displaysurface(int width, int height)
 
     surface->width = width;
     surface->height = height;
+    
+    if (scaling_active) {
+        if (host_format.BytesPerPixel != 2 && host_format.BytesPerPixel != 4) {
+            surface->linesize = width * 4;
+            surface->pf = qemu_default_pixelformat(32);
+        } else {
+            surface->linesize = width * host_format.BytesPerPixel;
+            surface->pf = sdl_to_qemu_pixelformat(&host_format);
+        }
+#ifdef WORDS_BIGENDIAN
+        surface->flags = QEMU_ALLOCATED_FLAG | QEMU_BIG_ENDIAN_FLAG;
+#else
+        surface->flags = QEMU_ALLOCATED_FLAG;
+#endif
+        surface->data = (uint8_t*) qemu_mallocz(surface->linesize * surface->height);
 
-    if (hostbpp == 16)
+        return surface;
+    }
+
+    if (host_format.BitsPerPixel == 16)
         do_sdl_resize(width, height, 16);
     else
         do_sdl_resize(width, height, 32);
@@ -298,9 +329,9 @@ static DisplaySurface* sdl_create_displaysurface(int width, int height)
     surface->data = real_screen->pixels;
 
 #ifdef WORDS_BIGENDIAN
-    surface->flags = QEMU_ALLOCATED_FLAG | QEMU_BIG_ENDIAN_FLAG;
+    surface->flags = QEMU_REALPIXELS_FLAG | QEMU_BIG_ENDIAN_FLAG;
 #else
-    surface->flags = QEMU_ALLOCATED_FLAG;
+    surface->flags = QEMU_REALPIXELS_FLAG;
 #endif
     allocator = 1;
 
@@ -309,10 +340,14 @@ static DisplaySurface* sdl_create_displaysurface(int width, int height)
 
 static void sdl_free_displaysurface(DisplaySurface *surface)
 {
-    allocator = 0;
     if (surface == NULL)
-        return;
+        goto out;
+
+    if (surface->flags & QEMU_ALLOCATED_FLAG)
+        qemu_free(surface->data);
     qemu_free(surface);
+out:
+    allocator = 0;
 }
 
 static DisplaySurface* sdl_resize_displaysurface(DisplaySurface *surface, int width, int height)
@@ -582,8 +617,12 @@ static void sdl_send_mouse_event(int dx, int dy, int dz, int state)
 static void toggle_full_screen(DisplayState *ds)
 {
     gui_fullscreen = !gui_fullscreen;
-    sdl_resize(ds);
     if (gui_fullscreen) {
+        if (host_format.BitsPerPixel == 16)
+            do_sdl_resize(ds_get_width(ds), ds_get_height(ds), 16);
+        else
+            do_sdl_resize(ds_get_width(ds), ds_get_height(ds), 32);
+        scaling_active = 0;
         gui_saved_grab = gui_grab;
         sdl_grab_start();
     } else {
@@ -779,18 +818,22 @@ static void sdl_refresh(DisplayState *ds)
 		}
 	    }
             break;
-#ifdef CONFIG_OPENGL
-        case SDL_VIDEORESIZE:
+	case SDL_VIDEORESIZE:
         {
-            if (opengl_enabled) {
-                SDL_ResizeEvent *rev = &ev->resize;
-                real_screen = SDL_SetVideoMode(rev->w, rev->h, 0, SDL_OPENGL|SDL_RESIZABLE);
-                opengl_setdata(ds);
-                opengl_update(ds, 0, 0, ds_get_width(ds), ds_get_height(ds));
+	    SDL_ResizeEvent *rev = &ev->resize;
+            int bpp = real_screen->format->BitsPerPixel;
+            if (bpp != 16 && bpp != 32)
+                bpp = 32;
+            do_sdl_resize(rev->w, rev->h, bpp);
+            scaling_active = 1;
+            if (!is_buffer_shared(ds->surface)) {
+                ds->surface = qemu_resize_displaysurface(ds, ds_get_width(ds), ds_get_height(ds));
+                dpy_resize(ds);
             }
+            vga_hw_invalidate();
+            vga_hw_update();
             break;
         }
-#endif
         default:
             break;
         }
@@ -854,7 +897,7 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame, int openg
         const SDL_VideoInfo *vi;
 
         vi = SDL_GetVideoInfo();
-        hostbpp = vi->vfmt->BitsPerPixel;
+        host_format = *(vi->vfmt);
 
         da = qemu_mallocz(sizeof(DisplayAllocator));
         da->create_displaysurface = sdl_create_displaysurface;

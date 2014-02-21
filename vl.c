@@ -6042,8 +6042,10 @@ int main(int argc, char **argv, char **envp)
     text_consoles_set_display(display_state);
     qemu_chr_initial_reset();
 
-    if (monitor_device && monitor_hd)
+    if (monitor_device && monitor_hd) {
         monitor_init(monitor_hd, !nographic);
+        store_dev_info(monitor_device, domid, monitor_hd, "/monitor");
+    }
 
     for(i = 0; i < MAX_SERIAL_PORTS; i++) {
         const char *devname = serial_devices[i];

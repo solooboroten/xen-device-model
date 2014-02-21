@@ -1523,7 +1523,7 @@ int xenstore_refresh_battery_status(void)
  * The entry is <domain-path><storeString>/tty and the value is the name
  * of the pty associated with the device.
  */
-static int store_dev_info(const char *devName, int domid,
+int store_dev_info(const char *devName, int domid,
                           CharDriverState *cState, const char *storeString)
 {
 #ifdef CONFIG_STUBDOM

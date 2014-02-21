@@ -74,6 +74,8 @@ void xenstore_check_new_media_present(int timeout);
 void xenstore_write_vncport(int vnc_display);
 void xenstore_read_vncpasswd(int domid, char *pwbuf, size_t pwbuflen);
 void xenstore_write_vslots(char *vslots);
+int store_dev_info(const char *devName, int domid,
+                   CharDriverState *cState, const char *storeString);
 
 int xenstore_domain_has_devtype_danger(struct xs_handle *handle,
                                 const char *devtype);

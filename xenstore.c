@@ -1138,55 +1138,32 @@ void xenstore_process_event(void *opaque)
     free(vec);
 }
 
-static void xenstore_write_domain_console_item
-    (const char *item, const char *val)
+void xenstore_write_vncport(int display)
 {
-    char *dompath;
-    char *path = NULL;
+    char *buf = NULL, *path;
+    char *portstr = NULL;
 
     if (xsh == NULL)
         return;
 
-    dompath = xs_get_domain_path(xsh, domid);
-    if (dompath == NULL) goto out_err;
+    path = xs_get_domain_path(xsh, domid);
+    if (path == NULL) {
+        fprintf(logfile, "xs_get_domain_path() error\n");
+        goto out;
+    }
 
-    if (pasprintf(&path, "%s/console/%s", dompath, item) == -1) goto out_err;
+    if (pasprintf(&buf, "%s/console/vnc-port", path) == -1)
+        goto out;
 
-    if (xs_write(xsh, XBT_NULL, path, val, strlen(val)) == 0)
-        goto out_err;
+    if (pasprintf(&portstr, "%d", display) == -1)
+        goto out;
+
+    if (xs_write(xsh, XBT_NULL, buf, portstr, strlen(portstr)) == 0)
+        fprintf(logfile, "xs_write() vncport failed\n");
 
  out:
-    free(path);
-    return;
-
- out_err:
-    fprintf(logfile, "write console item %s (%s) failed\n", item, path);
-    goto out;
-}
-
-void xenstore_write_vncinfo(int port,
-                            const struct sockaddr *addr,
-                            socklen_t addrlen,
-                            const char *password)
-{
-    char *portstr = NULL;
-    const char *addrstr;
-
-    if (pasprintf(&portstr, "%d", port) != -1) {
-        xenstore_write_domain_console_item("vnc-port", portstr);
-        free(portstr);
-    }
-
-    assert(addr->sa_family == AF_INET); 
-    addrstr = inet_ntoa(((const struct sockaddr_in*)addr)->sin_addr);
-    if (!addrstr) {
-        fprintf(logfile, "inet_ntop on vnc-addr failed\n");
-    } else {
-        xenstore_write_domain_console_item("vnc-listen", addrstr);
-    }
-
-    if (password)
-        xenstore_write_domain_console_item("vnc-pass", password);
+    free(portstr);
+    free(buf);
 }
 
 void xenstore_write_vslots(char *vslots)

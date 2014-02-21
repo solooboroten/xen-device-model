@@ -864,12 +864,15 @@ static void console_putchar(TextConsole *s, int ch)
         break;
     case TTY_STATE_CSI: /* handle escape sequence parameters */
         if (ch >= '0' && ch <= '9') {
-            if (s->nb_esc_params < MAX_ESC_PARAMS) {
+            if (s->nb_esc_params < MAX_ESC_PARAMS && s->esc_params[s->nb_esc_params] < 10000) {
                 s->esc_params[s->nb_esc_params] =
                     s->esc_params[s->nb_esc_params] * 10 + ch - '0';
             }
         } else {
-            s->nb_esc_params++;
+            if (s->nb_esc_params < MAX_ESC_PARAMS)
+                s->nb_esc_params++;
+            if (s->nb_esc_params < MAX_ESC_PARAMS)
+                s->esc_params[s->nb_esc_params] = 0;
             if (ch == ';')
                 break;
 #ifdef DEBUG_CONSOLE
@@ -924,6 +927,9 @@ static void console_putchar(TextConsole *s, int ch)
                 if (s->x < 0) {
                     s->x = 0;
                 }
+                if (s->x >= s->width) {
+                    s->x = s->width - 1;
+                }
                 break;
             case 'f':
             case 'H':
@@ -932,9 +938,15 @@ static void console_putchar(TextConsole *s, int ch)
                 if (s->x < 0) {
                     s->x = 0;
                 }
+                if (s->x >= s->width) {
+                    s->x = s->width - 1;
+                }
                 s->y = s->esc_params[0] - 1;
                 if (s->y < 0) {
                     s->y = 0;
+                }
+                if (s->y >= s->height) {
+                    s->y = s->height - 1;
                 }
                 break;
             case 'J':
@@ -973,11 +985,11 @@ static void console_putchar(TextConsole *s, int ch)
             case 'K':
                 switch (s->esc_params[0]) {
                 case 0:
-                /* clear to eol */
-                for(x = s->x; x < s->width; x++) {
+                    /* clear to eol */
+                    for(x = s->x; x < s->width; x++) {
                         console_clear_xy(s, x, s->y);
-                }
-                break;
+                    }
+                    break;
                 case 1:
                     /* clear from beginning of line */
                     for (x = 0; x <= s->x; x++) {
@@ -990,11 +1002,11 @@ static void console_putchar(TextConsole *s, int ch)
                         console_clear_xy(s, x, s->y);
                     }
                 break;
-            }
+                }
                 break;
             case 'm':
-            console_handle_escape(s);
-            break;
+                console_handle_escape(s);
+                break;
             case 'n':
                 /* report cursor position */
                 /* TODO: send ESC[row;colR */

@@ -1094,6 +1094,9 @@ static void init_pci_config_space(UHCIState *s, uint16_t device_id)
     pci_conf->header_type = 0;
     pci_conf->interrupt_pin = 4;
 
+    pci_conf->subsystem_vendor_id = 0x5853;
+    pci_conf->subsystem_id = 1;
+
     /* The release number isn't covered by the usual PCI header, so
        just do it with a byte write. */
     pci_conf_raw[0x60] = 0x10;

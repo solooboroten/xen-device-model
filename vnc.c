@@ -31,7 +31,9 @@
 #include "audio/audio.h"
 #include <zlib.h>
 
-#define VNC_REFRESH_INTERVAL (1000 / 30)
+#define VNC_REFRESH_INTERVAL_BASE 30
+#define VNC_REFRESH_INTERVAL_INC  50
+#define VNC_REFRESH_INTERVAL_MAX  2000
 
 #include "vnc.h"
 #include "vnc_keysym.h"
@@ -101,6 +103,7 @@ struct VncSurface
 struct VncDisplay
 {
     QEMUTimer *timer;
+    int timer_interval;
     int lsock;
     DisplayState *ds;
     VncState *clients;
@@ -208,7 +211,7 @@ static void vnc_write_s32(VncState *vs, int32_t value);
 static void vnc_write_u16(VncState *vs, uint16_t value);
 static void vnc_write_u8(VncState *vs, uint8_t value);
 static void vnc_flush(VncState *vs);
-static void vnc_update_client(VncState *vs, int has_dirty);
+static int vnc_update_client(VncState *vs, int has_dirty);
 static void vnc_client_read(void *opaque);
 static void vnc_disconnect_start(VncState *vs);
 static void vnc_disconnect_finish(VncState *vs);
@@ -745,7 +748,7 @@ static int find_and_clear_dirty_height(struct VncState *vs,
     return h;
 }
 
-static void vnc_update_client(VncState *vs, int has_dirty)
+static int vnc_update_client(VncState *vs, int has_dirty)
 {
     if (vs->need_update && vs->csock != -1) {
         VncDisplay *vd = vs->vd;
@@ -755,10 +758,10 @@ static void vnc_update_client(VncState *vs, int has_dirty)
 
         if (vs->output.offset && !vs->audio_cap && !vs->force_update)
             /* kernel send buffers are full -> drop frames to throttle */
-            return;
+            return 0;
 
         if (!has_dirty && !vs->audio_cap && !vs->force_update)
-	    return;
+	    return 0;
 
         /*
          * Send screen updates to the vnc client using the server
@@ -801,10 +804,13 @@ static void vnc_update_client(VncState *vs, int has_dirty)
 	vnc_flush(vs);
         vs->force_update = 0;
 
+        return n_rectangles;
     }
 
     if (vs->csock == -1)
         vnc_disconnect_finish(vs);
+
+    return 0;
 }
 
 /* audio */
@@ -1557,6 +1563,13 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 {
     int i;
     uint16_t limit;
+    VncDisplay *vd = vs->vd;
+
+    if (data[0] > 3) {
+        vd->timer_interval = VNC_REFRESH_INTERVAL_BASE;
+        if (!qemu_timer_expired(vd->timer, qemu_get_clock(rt_clock) + vd->timer_interval))
+            qemu_mod_timer(vd->timer, qemu_get_clock(rt_clock) + vd->timer_interval);
+    }
 
     switch (data[0]) {
     case 0:
@@ -2356,7 +2369,7 @@ static void vnc_refresh(void *opaque)
 {
     VncDisplay *vd = opaque;
     VncState *vs = NULL;
-    int has_dirty = 0;
+    int has_dirty = 0, rects = 0;
 
     vga_hw_update();
 
@@ -2364,15 +2377,25 @@ static void vnc_refresh(void *opaque)
 
     vs = vd->clients;
     while (vs != NULL) {
-        vnc_update_client(vs, has_dirty);
+        rects += vnc_update_client(vs, has_dirty);
         vs = vs->next;
     }
 
-    qemu_mod_timer(vd->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
+    if (has_dirty && rects) {
+        vd->timer_interval /= 2;
+        if (vd->timer_interval < VNC_REFRESH_INTERVAL_BASE)
+            vd->timer_interval = VNC_REFRESH_INTERVAL_BASE;
+    } else {
+        vd->timer_interval += VNC_REFRESH_INTERVAL_INC;
+        if (vd->timer_interval > VNC_REFRESH_INTERVAL_MAX)
+            vd->timer_interval = VNC_REFRESH_INTERVAL_MAX;
+    }
+    qemu_mod_timer(vd->timer, qemu_get_clock(rt_clock) + vd->timer_interval);
 }
 
 static void vnc_init_timer(VncDisplay *vd)
 {
+    vd->timer_interval = VNC_REFRESH_INTERVAL_BASE;
     if (vd->timer == NULL && vd->clients != NULL) {
         vd->timer = qemu_new_timer(rt_clock, vnc_refresh, vd);
         vnc_refresh(vd);

@@ -3383,6 +3383,7 @@ void pci_cirrus_vga_init(PCIBus *bus, uint8_t *vga_ram_base,
     pci_conf[0x2d] = 0x58;
     pci_conf[0x2e] = 0x01; /* subsystem device */
     pci_conf[0x2f] = 0x00;
+    pci_conf[0x3d] = 1; // interrupt pin 0
 
     if (vga_ram_size != 4*1024*1024) {
         fprintf(stderr, "The -videoram option does not work with the cirrus vga model. Video ram set to 4M. \n");

@@ -789,6 +789,61 @@ int xenstore_parse_disable_pf_config ()
     return disable_pf;
 }
 
+void xenstore_parse_pf_config(struct pci_config_header *pch)
+{
+    char *node, *val;
+    unsigned int len;
+
+    /* See http://www.pcidatabase.com/vendor_details.php?id=1690 */
+    pch->vendor_id = 0x5853;
+    pch->subsystem_vendor_id = 0x5853;
+
+    /* Defaults */
+    pch->device_id = 0x0001;
+    pch->subsystem_id = 0x0001;
+    pch->revision = 1;
+     
+    /* The presence of this key gates use of the others */   
+    node = NULL;
+    if ( pasprintf(&node, "/local/domain/%u/platform/device_id", domid) >= 0 ) {
+        char *val;
+
+        if ( (val = xs_read(xsh, XBT_NULL, node, &len)) != NULL ) {
+            pch->device_id = strtoul(val, NULL, 0);
+            free(val);
+        }
+        free(node);
+        if ( val == NULL )
+            return;
+    }
+
+    pch->subsystem_id = pch->device_id;
+
+    node = NULL;
+    if ( pasprintf(&node, "/local/domain/%u/platform/subsystem_id", domid) >= 0 ) {
+        char *val;
+
+        if ( (val = xs_read(xsh, XBT_NULL, node, &len)) != NULL ) {
+            pch->subsystem_id = strtoul(val, NULL, 0);
+            free(val);
+        }
+        free(node);
+    }
+        
+    pch->revision = 2;
+
+    node = NULL;
+    if ( pasprintf(&node, "/local/domain/%u/platform/revision", domid) >= 0 ) {
+        char *val;
+
+        if ( (val = xs_read(xsh, XBT_NULL, node, &len)) != NULL ) {
+            pch->revision = strtoul(val, NULL, 0);
+            free(val);
+        }
+        free(node);
+    }
+}
+
 int xenstore_fd(void)
 {
     if (xsh)

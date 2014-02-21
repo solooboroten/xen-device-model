@@ -569,20 +569,15 @@ void pci_xen_platform_init(PCIBus *bus)
     d = (PCIXenPlatformState *)pci_register_device(
         bus, "xen-platform", sizeof(PCIXenPlatformState), -1, NULL, NULL);
     pch = (struct pci_config_header *)d->pci_dev.config;
-    pch->vendor_id = 0x5853;
-    pch->device_id = 0x0001;
+
+    xenstore_parse_pf_config(pch);
+
     pch->command = 3; /* IO and memory access */
-    pch->revision = 1;
     pch->api = 0;
     pch->subclass = 0x80; /* Other */
     pch->class = 0xff; /* Unclassified device class */
     pch->header_type = 0;
     pch->interrupt_pin = 1;
-
-    /* Microsoft WHQL requires non-zero subsystem IDs. */
-    /* http://www.pcisig.com/reflector/msg02205.html.  */
-    pch->subsystem_vendor_id = pch->vendor_id; /* Duplicate vendor id.  */
-    pch->subsystem_id        = 0x0001;         /* Hardcode sub-id as 1. */
 
     pci_register_io_region(&d->pci_dev, 0, 0x100,
                            PCI_ADDRESS_SPACE_IO, platform_ioport_map);

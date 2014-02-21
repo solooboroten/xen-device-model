@@ -67,6 +67,7 @@ void xenstore_init(void);
 uint32_t xenstore_read_target(void);
 void xenstore_parse_domain_config(int domid);
 int xenstore_parse_disable_pf_config(void);
+void xenstore_parse_pf_config(struct pci_config_header *pch);
 int xenstore_fd(void);
 void xenstore_process_event(void *opaque);
 void xenstore_record_dm(const char *subpath, const char *state);

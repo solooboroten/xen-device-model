@@ -3483,6 +3483,7 @@ PCIDevice *pci_rtl8139_init(PCIBus *bus, NICInfo *nd, int devfn)
 
     instance = pci_bus_num(bus) << 8 | s->pci_dev->devfn;
     register_savevm("rtl8139", instance, 4, rtl8139_save, rtl8139_load, s);
+    register_savevm("rtl8139_pci", instance, 1, NULL, generic_pci_load, s->pci_dev);
 
 #ifdef RTL8139_ONBOARD_TIMER
     s->timer = qemu_new_timer(vm_clock, rtl8139_timer, s);

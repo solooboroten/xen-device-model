@@ -380,16 +380,19 @@ static int uhci_load(QEMUFile *f, void *opaque, int version_id)
     if (version_id > 1)
         return -EINVAL;
 
-    ret = pci_device_load(&s->dev, f);
-    if (ret < 0)
-        return ret;
+    if (loadvm_version_id > 1) {
+        ret = pci_device_load(&s->dev, f);
+        if (ret < 0)
+            return ret;
 
-    qemu_get_8s(f, &num_ports);
-    if (num_ports != NB_PORTS)
-        return -EINVAL;
+	qemu_get_8s(f, &num_ports);
+	if (num_ports != NB_PORTS)
+	    return -EINVAL;
 
-    for (i = 0; i < num_ports; ++i)
-        qemu_get_be16s(f, &s->ports[i].ctrl);
+	for (i = 0; i < num_ports; ++i)
+	    qemu_get_be16s(f, &s->ports[i].ctrl);
+    }
+
     qemu_get_be16s(f, &s->cmd);
     qemu_get_be16s(f, &s->status);
     qemu_get_be16s(f, &s->intr);
@@ -397,6 +400,11 @@ static int uhci_load(QEMUFile *f, void *opaque, int version_id)
     qemu_get_be32s(f, &s->fl_base_addr);
     qemu_get_8s(f, &s->sof_timing);
     qemu_get_8s(f, &s->status2);
+
+    if (loadvm_version_id == 1)
+        for(i = 0; i < NB_PORTS; i++)
+            qemu_get_be16s(f, &s->ports[i].ctrl);
+
     qemu_get_timer(f, s->frame_timer);
 
     return 0;
@@ -1100,7 +1108,8 @@ void usb_uhci_piix3_init(PCIBus *bus, int devfn)
     pci_register_io_region(&s->dev, 4, 0x20,
                            PCI_ADDRESS_SPACE_IO, uhci_map);
 
-    register_savevm("uhci", 0, 1, uhci_save, uhci_load, s);
+    register_savevm("UHCI usb controller", 0, 1, uhci_save, uhci_load, s);
+    register_savevm("UHCI_usb_pci", 0, 1, NULL, generic_pci_load, &(s->dev));
 }
 
 void usb_uhci_piix4_init(PCIBus *bus, int devfn)

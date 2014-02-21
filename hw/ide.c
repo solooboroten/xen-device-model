@@ -3764,6 +3764,7 @@ void pci_piix3_ide_init(PCIBus *bus, BlockDriverState **hd_table, int devfn,
             hd_table[i]->private = &d->dev;
 
     register_savevm("ide", 0, 3, pci_ide_save, pci_ide_load, d);
+    register_savevm("ide_pci", 0, 1, NULL, generic_pci_load, &(d->dev));
 }
 
 /* hd_table must contain 4 block drivers */

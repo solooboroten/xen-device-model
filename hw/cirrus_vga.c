@@ -3282,6 +3282,7 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci)
     qemu_register_reset(cirrus_reset, s);
     cirrus_reset(s);
     register_savevm("cirrus_vga", 0, 3, cirrus_vga_save, cirrus_vga_load, s);
+    register_savevm("cirrus_vga_pci", 0, 1, NULL, generic_pci_load, s->pci_dev);
 }
 
 /***************************************
@@ -3378,9 +3379,8 @@ void pci_cirrus_vga_init(PCIBus *bus, uint8_t *vga_ram_base,
     s = &d->cirrus_vga;
     vga_common_init((VGAState *)s,
                     vga_ram_base, vga_ram_offset, vga_ram_size);
-    cirrus_init_common(s, device_id, 1);
-
     s->pci_dev = (PCIDevice *)d;
+    cirrus_init_common(s, device_id, 1);
 
     /* setup memory space */
     /* memory #0 LFB */

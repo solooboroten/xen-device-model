@@ -124,12 +124,14 @@ void pci_device_save(PCIDevice *s, QEMUFile *f)
 
 int pci_device_load(PCIDevice *s, QEMUFile *f)
 {
-    uint32_t version_id;
+    uint32_t version_id = 1;
     int i;
 
-    version_id = qemu_get_be32(f);
-    if (version_id > 2)
-        return -EINVAL;
+    if (loadvm_version_id > 1) {
+	version_id = qemu_get_be32(f);
+	if (version_id > 2)
+		return -EINVAL;
+    }
     qemu_get_buffer(f, s->config, 256);
     pci_update_mappings(s);
 
@@ -137,6 +139,15 @@ int pci_device_load(PCIDevice *s, QEMUFile *f)
         for (i = 0; i < 4; i ++)
             pci_set_irq(s, i, qemu_get_be32(f));
 
+    return 0;
+}
+
+int generic_pci_load(QEMUFile* f, void *opaque, int version_id)
+{
+    PCIDevice* s=(PCIDevice*)opaque;
+
+    qemu_get_buffer(f, s->config, 256);
+    pci_update_mappings(s);
     return 0;
 }
 

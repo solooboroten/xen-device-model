@@ -347,8 +347,7 @@ static void piix_save(QEMUFile* f, void *opaque)
 static int piix_load(QEMUFile* f, void *opaque, int version_id)
 {
     PCIDevice *d = opaque;
-    if (version_id != 2)
-        return -EINVAL;
+
     return pci_device_load(d, f);
 }
 

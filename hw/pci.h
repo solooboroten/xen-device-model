@@ -242,6 +242,7 @@ void pci_default_write_config(PCIDevice *d,
                               uint32_t address, uint32_t val, int len);
 void pci_device_save(PCIDevice *s, QEMUFile *f);
 int pci_device_load(PCIDevice *s, QEMUFile *f);
+int generic_pci_load(QEMUFile* f, void *opaque, int version_id);
 
 typedef void (*pci_set_irq_fn)(qemu_irq *pic, int irq_num, int level);
 typedef int (*pci_map_irq_fn)(PCIDevice *pci_dev, int irq_num);

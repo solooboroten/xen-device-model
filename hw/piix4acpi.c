@@ -159,9 +159,11 @@ static int piix4acpi_load(QEMUFile *f, void *opaque, int version_id)
 
     if (version_id > 2)
         return -EINVAL;
-    ret = pci_device_load(&s->dev, f);
-    if (ret < 0)
-        return ret;
+    if (loadvm_version_id > 1) {
+        ret = pci_device_load(&s->dev, f);
+        if (ret < 0)
+            return ret;
+    }
     qemu_get_be16s(f, &s->pm1_control);
 
     pm1a_evt_address_assigned = s->pm1a_evt_blk_address;
@@ -779,6 +781,7 @@ i2c_bus *piix4_pm_init(PCIBus *bus, int devfn, uint32_t smb_io_base,
     register_ioport_write(ACPI_DBG_IO_ADDR, 4, 4, acpi_dbg_writel, d);
 
     register_savevm("piix4acpi", 0, 2, piix4acpi_save, piix4acpi_load, d);
+    register_savevm("piix4acpi_pci", 0, 1, NULL, generic_pci_load, &(d->dev));
 
     return NULL;
 }

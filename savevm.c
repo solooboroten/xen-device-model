@@ -87,6 +87,8 @@
 #define memalign(align, size) malloc(size)
 #endif
 
+unsigned int loadvm_version_id;
+
 /* point to the block driver where the snapshots are managed */
 static BlockDriverState *bs_snapshots;
 
@@ -836,16 +838,21 @@ static int qemu_loadvm_state_v2(QEMUFile *f)
 {
     SaveStateEntry *se;
     int len, ret, instance_id, record_len, version_id;
-    int64_t total_len, end_pos, cur_pos;
+    int64_t total_len = 0, end_pos = 0, cur_pos = 0;
     char idstr[256];
 
-    total_len = qemu_get_be64(f);
-    end_pos = total_len + qemu_ftell(f);
+    if (loadvm_version_id > 1) {
+	total_len = qemu_get_be64(f);
+	end_pos = total_len + qemu_ftell(f);
+    }
     for(;;) {
-        if (qemu_ftell(f) >= end_pos)
+        if (loadvm_version_id > 1 && qemu_ftell(f) >= end_pos)
             break;
         len = qemu_get_byte(f);
-        qemu_get_buffer(f, (uint8_t *)idstr, len);
+        if (loadvm_version_id == 1 && !len)
+            break;
+        if (qemu_get_buffer(f, (uint8_t *)idstr, len) <= 0)
+            break;
         idstr[len] = '\0';
         instance_id = qemu_get_be32(f);
         version_id = qemu_get_be32(f);
@@ -883,10 +890,10 @@ int qemu_loadvm_state(QEMUFile *f)
     if (v != QEMU_VM_FILE_MAGIC)
         return -EINVAL;
 
-    v = qemu_get_be32(f);
-    if (v == QEMU_VM_FILE_VERSION_COMPAT)
+    loadvm_version_id = qemu_get_be32(f);
+    if (loadvm_version_id < QEMU_VM_FILE_VERSION)
         return qemu_loadvm_state_v2(f);
-    if (v != QEMU_VM_FILE_VERSION)
+    else if (loadvm_version_id != QEMU_VM_FILE_VERSION)
         return -ENOTSUP;
 
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {

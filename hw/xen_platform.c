@@ -429,9 +429,6 @@ static int xen_pci_load(QEMUFile *f, void *opaque, int version_id)
     PCIXenPlatformState *d = opaque;
     int ret;
 
-    if (version_id > 3)
-        return -EINVAL;
-
     ret = pci_device_load(&d->pci_dev, f);
     if (ret < 0)
         return ret;

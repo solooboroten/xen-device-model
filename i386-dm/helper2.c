@@ -602,6 +602,11 @@ int main_loop(void)
             FD_SET(xenstore_fd(), &fds);
             if (select(xenstore_fd() + 1, &fds, NULL, NULL, NULL) > 0)
                 xenstore_process_event(NULL);
+            if (qemu_exit_requested()) {
+                /* just exit, we already saved all disks */
+                destroy_hvm_domain();
+                exit(0);
+            }
         }
 
         xenstore_record_dm_state("running");

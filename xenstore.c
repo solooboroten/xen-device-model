@@ -653,6 +653,19 @@ void xenstore_parse_domain_config(int hvm_domid)
 		format = &bdrv_raw;
             memmove(params, offset+1, strlen(offset+1)+1 );
             fprintf(logfile, "Strip off blktap sub-type prefix to %s (drv '%s')\n", params, drv); 
+            if (!strcmp(drv, "vhd")) {
+                if (pasprintf(&buf, "%s/backdev-path", bpath) == -1)
+                    continue;
+                free(params);
+                params = NULL;
+                while (params == NULL) {
+                    params = xs_read(xsh, XBT_NULL, buf, &len);
+                    if (params == NULL)
+                        usleep(UWAIT);
+                }
+                fprintf(logfile, "params => %s\n", params);
+                format = &bdrv_raw;
+            }
         }
         /* Prefix with /dev/ if needed */
         if (!strcmp(drv, "phy") && params[0] != '/') {

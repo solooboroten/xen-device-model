@@ -3673,8 +3673,10 @@ void qemu_system_reset(void)
 void qemu_system_reset_request(void)
 {
     if (no_reboot) {
+        fprintf(stderr, "requesting shutdown\n");
         shutdown_requested = 1;
     } else {
+        fprintf(stderr, "requesting reset\n");
         reset_requested = 1;
     }
     if (cpu_single_env)
@@ -3684,6 +3686,7 @@ void qemu_system_reset_request(void)
 void qemu_system_shutdown_request(void)
 {
     shutdown_requested = 1;
+    fprintf(stderr, "requesting shutdown\n");
     if (cpu_single_env)
         cpu_interrupt(cpu_single_env, CPU_INTERRUPT_EXIT);
 }
@@ -3691,6 +3694,7 @@ void qemu_system_shutdown_request(void)
 void qemu_system_powerdown_request(void)
 {
     powerdown_requested = 1;
+    fprintf(stderr, "requesting powerdown\n");
     if (cpu_single_env)
         cpu_interrupt(cpu_single_env, CPU_INTERRUPT_EXIT);
 }
@@ -3905,6 +3909,7 @@ int main_loop(void)
             cur_cpu = env;
 
             if (shutdown_requested) {
+                fprintf(stderr, "shutting down\n");
                 ret = EXCP_INTERRUPT;
                 if (no_shutdown) {
                     vm_stop(0);
@@ -3914,13 +3919,15 @@ int main_loop(void)
                     break;
             }
             if (reset_requested) {
+                fprintf(stderr, "resetting\n");
                 reset_requested = 0;
                 qemu_system_reset();
                 ret = EXCP_INTERRUPT;
             }
             if (powerdown_requested) {
+                fprintf(stderr, "powering down\n");
                 powerdown_requested = 0;
-		qemu_system_powerdown();
+                qemu_system_powerdown();
                 ret = EXCP_INTERRUPT;
             }
             if (unlikely(ret == EXCP_DEBUG)) {

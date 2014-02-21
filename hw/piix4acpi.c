@@ -30,9 +30,11 @@
 #include "qemu-xen.h"
 #include "battery_mgmt.h"
 #include "qemu-log.h"
+#include "qemu-timer.h"
 
 #include <xen/hvm/ioreq.h>
 #include <xen/hvm/params.h>
+#include <xen/hvm/save.h>
 
 #define PIIX4ACPI_LOG_ERROR 0
 #define PIIX4ACPI_LOG_INFO 1
@@ -68,6 +70,8 @@
 /* The bit in GPE0_STS/EN to notify the pci hotplug event */
 #define ACPI_PHP_GPE_BIT 3
 
+#define RTC_EN            (1 << 10)
+
 #define NR_PHP_SLOT_REG (NR_PCI_DEVFN/2)
 #define DEVFN_TO_PHP_SLOT_REG(devfn) (devfn >> 1)
 #define PHP_SLOT_REG_TO_DEVFN(reg, hilo) ((reg << 1) | hilo)
@@ -78,6 +82,7 @@
 typedef struct PCIAcpiState {
     PCIDevice dev;
     uint16_t pm1_control; /* pm1a_ECNT_BLK */
+    QEMUTimer *ts;
 
     uint32_t pm1a_evt_blk_address;
 } PCIAcpiState;
@@ -183,6 +188,248 @@ static int piix4acpi_load(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
+static inline int unbcd(int coded, int val)
+{
+    if (!coded) 
+        return val;
+    else
+        return ((val >> 4) * 10) + (val & 0x0f);
+}
+
+static int calculate_wait(struct hvm_hw_rtc *rtc)
+{
+    unsigned int now, alarm, ch, cm, cs, h, m, s, pm, bcd;
+    int wait = -1;
+
+    if (~rtc->cmos_data[0xB] & 0x20) /* Alarm interrupt not enabled */
+        goto done;
+
+    bcd = !(rtc->cmos_data[0xB] & 0x04);
+
+    cs = unbcd(bcd, rtc->cmos_data[0x0]);  /* Clock secs */
+    cm = unbcd(bcd, rtc->cmos_data[0x2]);  /* Clock minutes */
+    ch = unbcd(bcd, rtc->cmos_data[0x4] & 0x7f);  /* Clock hours */
+    if (!(rtc->cmos_data[0xB] & 0x02)  /* 12-hour clock */
+        && (rtc->cmos_data[0x4] & 0x80)) /* PM */
+        ch += 12;
+    
+    now = cs + cm * 60 + ch * 3600;
+
+    s = rtc->cmos_data[0x1];  /* Alarm secs */
+    m = rtc->cmos_data[0x3];  /* Alarm minutes */
+    h = rtc->cmos_data[0x5];  /* Alarm hours */
+    pm = (!(rtc->cmos_data[0xB] & 0x02)  /* 12-hour clock */
+            && (rtc->cmos_data[0x5] & 0x80)) ? 43200 : 0; /* PM */
+
+    alarm = 0;
+    /* Add alarm h/m/s.  If an entry is wildcarded (>= 0xc0), 
+        * use the one from the current time. */
+    if (s < 0xc0) alarm += unbcd(bcd, s); 
+    else alarm += cs;
+    if (m < 0xc0) alarm += unbcd(bcd, m) * 60;
+    else alarm += cm * 60;
+    if (h < 0xc0) alarm += unbcd(bcd, h & 0x7f) * 3600 + pm;
+    else alarm += ch * 3600;
+
+    wait = (int) alarm - (int) now; 
+    while (wait < 0) wait += 86400;
+
+    /* Handle wildcarded h/m/s entries */
+    if (h >= 0xc0) { 
+        while (wait > 3600) wait -= 3600;
+        if (m >= 0xc0) {
+            while (wait > 60) wait -= 60;
+            if (s >= 0xc0)
+                wait = 0;
+        } else if (s >= 0xc0 && wait > cs)
+            wait -= cs;
+    } else {
+        if (m >= 0xc0 && wait > cm * 60)
+            wait -= cm * 60;
+        if (s >= 0xc0 && wait > cs)
+            wait -= cs;
+    }
+
+    fprintf(stderr, "RTC now %02i:%02i:%02i, "
+            "alarm %02i:%02i:%02i (+%i secs)\n", 
+            ch, cm, cs,
+            (h < 0xc0) ? unbcd(bcd, h & 0x7f) : -1,
+            (m < 0xc0) ? unbcd(bcd, m) : -1,
+            (s < 0xc0) ? unbcd(bcd, s) : -1,
+            wait);
+
+done:
+    return wait;
+}
+
+static int
+get_hvm_state(void **bufp, size_t *lenp)
+{
+    ssize_t rec_len;
+    void *buf = NULL;
+
+    rec_len = xc_domain_hvm_getcontext(xc_handle, domid, 0, 0);
+    if (rec_len < 0) {
+        fprintf(stderr, "Can't get HVM state length\n");
+        goto no_hvm_state;
+    }
+    if ((buf = malloc(rec_len)) == NULL) {
+        fprintf(stderr, "Can't allocate HVM state buffer\n");
+        goto no_hvm_state;
+    }
+    if ((rec_len = xc_domain_hvm_getcontext(xc_handle, domid, buf, 
+                                            rec_len)) == -1) {
+        fprintf(stderr, "Can't get HVM state\n");
+        goto no_hvm_state;
+    }
+
+    *bufp = buf;
+    *lenp = rec_len;
+    return 0;
+
+ no_hvm_state:
+    free(buf);
+    return -1;
+}
+
+static void acpi_s3(PCIAcpiState *s)
+{
+    void *buf;
+    size_t len;
+    int wait = -1;
+    int wake_enabled = 0;
+
+    fprintf(stderr, "ACPI: entering S3\n");
+
+    xc_domain_pause(xc_handle, domid);
+
+    if (get_hvm_state(&buf, &len) == 0) {
+        struct hvm_save_descriptor *d;
+        struct hvm_hw_pmtimer *pt;    
+        struct hvm_hw_rtc *rtc;
+        
+        for (d = buf;
+             ((void *)d < (buf + len)) && d->typecode != HVM_SAVE_CODE(END);
+             d = (void *)d + sizeof (*d) + d->length) {
+            switch (d->typecode) {
+                
+            case HVM_SAVE_CODE(PMTIMER):
+                pt = (struct hvm_hw_pmtimer *)(d + 1);
+                wake_enabled = !!(pt->pm1a_en & RTC_EN);
+                break;
+                
+            case HVM_SAVE_CODE(RTC):
+                rtc = (struct hvm_hw_rtc *)(d + 1);
+                wait = calculate_wait(rtc);
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+
+    s3_shutdown_flag = 1;
+    qemu_system_reset();
+    s3_shutdown_flag = 0;
+
+    cmos_set_s3_resume();
+
+    xc_set_hvm_param(xc_handle, domid, HVM_PARAM_ACPI_S_STATE, 3);
+
+    if (!wake_enabled) {
+        fprintf(stderr, "S3: RTC wake not enabled\n");
+        goto done;
+    } else if (wait < 0) {
+        fprintf(stderr, "S3: RTC alarm not set\n");
+        goto done;
+    }
+
+    fprintf(stderr, "S3: requesting wake in %ds\n", wait);
+    qemu_mod_timer(s->ts, qemu_get_clock(vm_clock) + (wait * ticks_per_sec));
+    return;
+
+done:
+    xc_domain_unpause(xc_handle, domid);
+}
+
+static void wake_from_s3(PCIAcpiState *s)
+{
+    fprintf(stderr, "ACPI: waking from S3\n");
+
+    xc_set_hvm_param(xc_handle, domid, HVM_PARAM_ACPI_S_STATE, 0);
+    xc_domain_unpause(xc_handle, domid);
+}
+
+static void acpi_s4(PCIAcpiState *s)
+{
+    void *buf;
+    size_t len;
+    int wait = -1;
+    int wake_enabled = 0;
+
+    fprintf(stderr, "ACPI: entering S4\n");
+
+    xc_domain_pause(xc_handle, domid);
+
+    if (get_hvm_state(&buf, &len) == 0) {
+        struct hvm_save_descriptor *d;
+        struct hvm_hw_pmtimer *pt;    
+        struct hvm_hw_rtc *rtc;
+        
+        for (d = buf;
+             ((void *)d < (buf + len)) && d->typecode != HVM_SAVE_CODE(END);
+             d = (void *)d + sizeof (*d) + d->length) {
+            switch (d->typecode) {
+                
+            case HVM_SAVE_CODE(PMTIMER):
+                pt = (struct hvm_hw_pmtimer *)(d + 1);
+                wake_enabled = !!(pt->pm1a_en & RTC_EN);
+                break;
+                
+            case HVM_SAVE_CODE(RTC):
+                rtc = (struct hvm_hw_rtc *)(d + 1);
+                wait = calculate_wait(rtc);
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+    
+    if (!wake_enabled) {
+        fprintf(stderr, "S4: RTC wake not enabled: halting\n");
+        goto halt;
+    } else if (wait < 0) {
+        fprintf(stderr, "S4: RTC alarm not set: halting\n");
+        goto halt;
+    }
+
+    fprintf(stderr, "S4: requesting wake in %ds\n", wait);
+    qemu_mod_timer(s->ts, qemu_get_clock(vm_clock) + (wait * ticks_per_sec));
+
+    qemu_system_reset_request();
+    return;
+
+halt:
+    xc_domain_unpause(xc_handle, domid);
+    qemu_system_shutdown_request();
+}
+
+static void wake_from_s4(PCIAcpiState *s)
+{
+    fprintf(stderr, "ACPI: waking from S4\n");
+
+    xc_domain_unpause(xc_handle, domid);
+}
+
+static void acpi_s5(PCIAcpiState *s)
+{
+    fprintf(stderr, "ACPI: entering S5\n");
+    qemu_system_shutdown_request();
+}
+
 static void acpiPm1Control_writeb(void *opaque, uint32_t addr, uint32_t val)
 {
     PCIAcpiState *s = opaque;
@@ -196,24 +443,38 @@ static uint32_t acpiPm1Control_readb(void *opaque, uint32_t addr)
     return (uint8_t)(s->pm1_control & ~(GBL_RLS|SLP_EN));
 }
 
-static void acpi_shutdown(uint32_t val)
+static void rtc_wake(void *opaque)
 {
-    if (!(val & SLP_EN))
-        return;
+    PCIAcpiState *s = opaque;
 
-    switch (val & SLP_TYP_Sx) {
+    fprintf(stderr, "RTC alarm fired\n");
+
+    switch (s->pm1_control & SLP_TYP_Sx) {
     case SLP_TYP_S3_V0:
     case SLP_TYP_S3_V1:
-        s3_shutdown_flag = 1;
-        qemu_system_reset();
-        s3_shutdown_flag = 0;
-        cmos_set_s3_resume();
-        xc_set_hvm_param(xc_handle, domid, HVM_PARAM_ACPI_S_STATE, 3);
+        wake_from_s3(s);
         break;
     case SLP_TYP_S4_V0:
+        wake_from_s4(s);
+        break;
+    default:
+        break;
+    }
+}
+
+static void acpi_shutdown(PCIAcpiState *s)
+{
+    switch (s->pm1_control & SLP_TYP_Sx) {
+    case SLP_TYP_S3_V0:
+    case SLP_TYP_S3_V1:
+        acpi_s3(s);
+        break;
+    case SLP_TYP_S4_V0:
+        acpi_s4(s);
+        break;
     case SLP_TYP_S5_V0:
     case SLP_TYP_S5_V1:
-        qemu_system_shutdown_request();
+        acpi_s5(s);
         break;
     default:
         break;
@@ -227,12 +488,14 @@ static void acpiPm1ControlP1_writeb(void *opaque, uint32_t addr, uint32_t val)
     val <<= 8;
     s->pm1_control = ((s->pm1_control & 0xff) | val) & ~SLP_EN;
 
-    acpi_shutdown(val);
+    if (val & SLP_EN)
+        acpi_shutdown(s);
 }
 
 static uint32_t acpiPm1ControlP1_readb(void *opaque, uint32_t addr)
 {
     PCIAcpiState *s = opaque;
+
     /* Mask out the write-only bits */
     return (uint8_t)((s->pm1_control & ~(GBL_RLS|SLP_EN)) >> 8);
 }
@@ -243,7 +506,8 @@ static void acpiPm1Control_writew(void *opaque, uint32_t addr, uint32_t val)
 
     s->pm1_control = val & ~SLP_EN;
 
-    acpi_shutdown(val);
+    if (val & SLP_EN)
+        acpi_shutdown(s);
 }
 
 static uint32_t acpiPm1Control_readw(void *opaque, uint32_t addr)
@@ -744,6 +1008,10 @@ i2c_bus *piix4_pm_init(PCIBus *bus, int devfn, uint32_t smb_io_base,
     d = (PCIAcpiState *)pci_register_device(
         bus, "PIIX4 ACPI", sizeof(PCIAcpiState),
         devfn, NULL, NULL);
+
+    d->ts = qemu_new_timer(vm_clock, rtc_wake, d);
+    if (!d->ts)
+	    fprintf(stderr, "could not create RTC timer\n");
 
     pci_conf = d->dev.config;
     pci_conf[0x00] = 0x86;  /* Intel */

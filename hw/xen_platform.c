@@ -577,7 +577,10 @@ void pci_xen_platform_init(PCIBus *bus)
     pch->class = 0x1; /* Storage device class */
     pch->subclass = 0x0; /* SCSI subclass */
     pch->header_type = 0;
-    pch->interrupt_pin = 1;
+    pch->interrupt_pin = 3; /* Carefully chosen to avoid interrupt
+                               sharing in non-apic systems, which
+                               triggers a bug in the Geneva PV
+                               drivers. */
 
     pci_register_io_region(&d->pci_dev, 0, 0x100,
                            PCI_ADDRESS_SPACE_IO, platform_ioport_map);

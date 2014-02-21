@@ -2017,7 +2017,11 @@ static void ide_atapi_cmd(IDEState *s)
         break;
     case GPCMD_PREVENT_ALLOW_MEDIUM_REMOVAL:
         if (bdrv_is_inserted(s->bs)) {
-            bdrv_set_locked(s->bs, packet[4] & 1);
+            int locked = packet[4] & 1;
+            if (locked != bdrv_is_locked(s->bs)) {
+                bdrv_set_locked(s->bs, locked);
+                xenstore_set_device_locked(s->bs);
+            }
             ide_atapi_cmd_ok(s);
         } else {
             ide_atapi_cmd_error(s, SENSE_NOT_READY,

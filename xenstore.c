@@ -52,6 +52,39 @@ void xenstore_do_eject(BlockDriverState *bs)
         xs_write(xsh, XBT_NULL, xenbus_param_paths[i], "eject", strlen("eject"));
 }
 
+void xenstore_set_device_locked(BlockDriverState *bs)
+{
+    int i;
+    size_t len;
+    char *path;
+    char *val;
+
+    i = xenstore_find_device(bs);
+    if (i == -1) {
+	fprintf(stderr, "xenstore_set_device_locked: couldn't find disk.\n");
+	return;
+    }
+    /* not a cdrom device */
+    if (!xenbus_param_paths[i])
+        return;
+    len = strlen(xenbus_param_paths[i]);
+    path = malloc(len + 1);
+    if (!path) {
+        fprintf(stderr, "xenstore_set_device_locked: malloc failed\n");
+        return;
+    }
+    strcpy(path, xenbus_param_paths[i]);
+    path[len - 6] = '\0';
+    strcat(path, "locked");
+
+    val = bs->locked ? "true" : "false";
+
+    if (!xs_write(xsh, XBT_NULL, path, val, strlen(val)))
+        fprintf(stderr, "xenstore_set_device_locked: xs_write for %s fail", path);
+
+    free(path);
+}
+ 
 #define UWAIT_MAX (30*1000000) /* thirty seconds */
 #define UWAIT     (100000)     /* 1/10th second  */
 

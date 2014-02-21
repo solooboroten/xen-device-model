@@ -132,6 +132,7 @@ int xenstore_pv_driver_build_blacklisted(uint16_t product_number,
 void xenstore_do_eject(BlockDriverState *bs);
 int xenstore_find_device(BlockDriverState *bs);
 void xenstore_dm_finished_startup(void);
+void xenstore_set_device_locked(BlockDriverState *bs);
 
 /* xenfbfront.c */
 int xenfb_pv_display_init(DisplayState *ds);

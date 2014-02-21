@@ -1355,6 +1355,7 @@ cirrus_hook_write_sr(CirrusVGAState * s, unsigned reg_index, int reg_value)
 	s->hw_cursor_y = (reg_value << 3) | (reg_index >> 5);
 	break;
     case 0x07:			// Extended Sequencer Mode
+        cirrus_update_memory_access(s);
     case 0x08:			// EEPROM Control
     case 0x09:			// Scratch Register 0
     case 0x0a:			// Scratch Register 1

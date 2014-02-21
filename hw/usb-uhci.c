@@ -1077,24 +1077,40 @@ static void uhci_map(PCIDevice *pci_dev, int region_num,
     register_ioport_read(addr, 32, 1, uhci_ioport_readb, s);
 }
 
+static void init_pci_config_space(UHCIState *s, uint16_t device_id)
+{
+    uint8_t *pci_conf_raw;
+    struct pci_config_header *pci_conf;
+
+    pci_conf_raw = s->dev.config;
+    pci_conf = (struct pci_config_header *)pci_conf_raw;
+
+    pci_conf->vendor_id = 0x8086;
+    pci_conf->device_id = device_id;
+    pci_conf->revision = 1;
+    pci_conf->api = 0;
+    pci_conf->subclass = 3;
+    pci_conf->class = 0xc;
+    pci_conf->header_type = 0;
+    pci_conf->interrupt_pin = 4;
+
+    /* The release number isn't covered by the usual PCI header, so
+       just do it with a byte write. */
+    pci_conf_raw[0x60] = 0x10;
+}
+
 void usb_uhci_piix3_init(PCIBus *bus, int devfn)
 {
     UHCIState *s;
-    uint8_t *pci_conf;
+    uint8_t *pci_conf_raw;
+    struct pci_config_header *pci_conf;
     int i;
 
     s = (UHCIState *)pci_register_device(bus,
                                         "USB-UHCI", sizeof(UHCIState),
                                         devfn, NULL, NULL);
-    pci_conf = s->dev.config;
-    pci_config_set_vendor_id(pci_conf, PCI_VENDOR_ID_INTEL);
-    pci_config_set_device_id(pci_conf, PCI_DEVICE_ID_INTEL_82371SB_2);
-    pci_conf[0x08] = 0x01; // revision number
-    pci_conf[0x09] = 0x00;
-    pci_config_set_class(pci_conf, PCI_CLASS_SERIAL_USB);
-    pci_conf[0x0e] = 0x00; // header_type
-    pci_conf[0x3d] = 4; // interrupt pin 3
-    pci_conf[0x60] = 0x10; // release number
+
+    init_pci_config_space(s, 0x7020);
 
     for(i = 0; i < NB_PORTS; i++) {
         qemu_register_usb_port(&s->ports[i].port, s, i, uhci_attach);

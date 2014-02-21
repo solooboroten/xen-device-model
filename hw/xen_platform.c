@@ -389,32 +389,6 @@ static void platform_mmio_map(PCIDevice *d, int region_num,
     cpu_register_physical_memory(addr, 0x1000000, mmio_io_addr);
 }
 
-struct pci_config_header {
-    uint16_t vendor_id;
-    uint16_t device_id;
-    uint16_t command;
-    uint16_t status;
-    uint8_t  revision;
-    uint8_t  api;
-    uint8_t  subclass;
-    uint8_t  class;
-    uint8_t  cache_line_size; /* Units of 32 bit words */
-    uint8_t  latency_timer; /* In units of bus cycles */
-    uint8_t  header_type; /* Should be 0 */
-    uint8_t  bist; /* Built in self test */
-    uint32_t base_address_regs[6];
-    uint32_t reserved1;
-    uint16_t subsystem_vendor_id;
-    uint16_t subsystem_id;
-    uint32_t rom_addr;
-    uint32_t reserved3;
-    uint32_t reserved4;
-    uint8_t  interrupt_line;
-    uint8_t  interrupt_pin;
-    uint8_t  min_gnt;
-    uint8_t  max_lat;
-};
-
 static void xen_pci_save(QEMUFile *f, void *opaque)
 {
     PCIXenPlatformState *d = opaque;

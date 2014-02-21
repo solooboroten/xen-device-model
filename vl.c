@@ -6000,7 +6000,12 @@ int main(int argc, char **argv, char **envp)
                     vnc_display_init(ds);
 		    xenstore_read_vncpasswd(domid, password, sizeof(password));
 		    vnc_display_password(ds, password);
-                    vnc_display_port = vnc_display_open(ds, vnc_display, vncunused);
+                    if (vncunused) {
+                        char *display = malloc(strlen(vnc_display) + 7);
+                        snprintf(display, strlen(vnc_display) + 7, "%s,to=99999", vnc_display);
+                        vnc_display_port = vnc_display_open(ds, display);
+                    } else
+                        vnc_display_port = vnc_display_open(ds, vnc_display);
 		    if (vnc_display_port < 0)
                         exit(1);
 		    xenstore_write_vncport(vnc_display_port);

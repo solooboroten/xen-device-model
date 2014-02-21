@@ -2779,5 +2779,23 @@ int vnc_display_open(DisplayState *ds, const char *display)
             vs->display = dpy;
         }
     }
-    return qemu_set_fd_handler2(vs->lsock, NULL, vnc_listen_read, NULL, vs);
+    qemu_set_fd_handler2(vs->lsock, NULL, vnc_listen_read, NULL, vs);
+    if (!vs->display) {
+        return -1;
+    } else {
+        char port[5];
+        char *start, *end;
+        int n;
+        start = strchr(vs->display, ':');
+        if (!start) return -1;
+        start++;
+        end = strchr(start, ',');
+        if (!end)
+            n = 4;
+        else
+            n = (int) (end - start);
+        strncpy(port, start, n);
+        port[n] = '\0';
+        return (5900 + atoi(port));
+    }
 }

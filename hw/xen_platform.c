@@ -3,6 +3,7 @@
  * 
  * Copyright (c) 2003-2004 Intel Corp.
  * Copyright (c) 2006 XenSource
+ * Copyright (c) 2010 Citrix Systems Inc.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -34,21 +35,35 @@
 #include <assert.h>
 #include <xenguest.h>
 
-static int drivers_blacklisted;
-static uint16_t driver_product_version;
-static int throttling_disabled;
 extern FILE *logfile;
-static char log_buffer[4096];
-static int log_buffer_off;
 
 static uint8_t platform_flags;
+static int throttling_disabled;
 
 #define PFFLAG_ROM_LOCK 1 /* Sets whether ROM memory area is RW or RO */
 
-typedef struct PCIXenPlatformState
+static uint8_t
+get_platform_flags(void)
 {
-  PCIDevice  pci_dev;
-} PCIXenPlatformState;
+    return platform_flags;
+}
+
+static void
+set_platform_flags(uint8_t flags)
+{
+    hvmmem_type_t mem_type;
+
+    mem_type = (flags & PFFLAG_ROM_LOCK) ? HVMMEM_ram_ro : HVMMEM_ram_rw;
+
+    if (xc_hvm_set_mem_type(xc_handle, domid, mem_type, 0xc0, 0x40))
+        fprintf(logfile, "unable to change state of ROM memory area!\n");
+    else {
+        platform_flags = flags & PFFLAG_ROM_LOCK;
+
+        fprintf(logfile, "ROM memory area now %s\n",
+                (mem_type == HVMMEM_ram_ro) ? "RO" : "RW");
+    }
+}
 
 static void log_throttling(const char *path, void *opaque)
 {
@@ -69,7 +84,8 @@ static void log_throttling(const char *path, void *opaque)
 #define BUCKET_MAX_SIZE (128*1024)
 #define BUCKET_FILL_RATE 256
 
-static void throttle(unsigned count)
+static void
+throttle(unsigned count)
 {
     static unsigned available;
     static struct timespec last_refil;
@@ -143,132 +159,260 @@ static void throttle(unsigned count)
     available -= count;
 }
 
-#define UNPLUG_ALL_IDE_DISKS 1
-#define UNPLUG_ALL_NICS 2
-#define UNPLUG_AUX_IDE_DISKS 4
+static char log_buffer[4096];
+static int log_buffer_off;
 
-static void platform_fixed_ioport_write2(void *opaque, uint32_t addr, uint32_t val)
+static void
+write_log(char c)
 {
-    switch (addr - 0x10) {
-    case 0:
-        /* Unplug devices.  Value is a bitmask of which devices to
-           unplug, with bit 0 the IDE devices, bit 1 the network
-           devices, and bit 2 the non-primary-master IDE devices. */
-        if (val & UNPLUG_ALL_IDE_DISKS)
-            ide_unplug_harddisks();
-        if (val & UNPLUG_ALL_NICS) {
-            pci_unplug_netifs();
-            net_tap_shutdown_all();
-        }
-        if (val & UNPLUG_AUX_IDE_DISKS) {
-            ide_unplug_aux_harddisks();
-        }
-        break;
-    case 2:
-        switch (val) {
-        case 1:
-            fprintf(logfile, "Citrix Windows PV drivers loaded in guest\n");
-            break;
-        case 0:
-            fprintf(logfile, "Guest claimed to be running PV product 0?\n");
-            break;
-        default:
-            fprintf(logfile, "Unknown PV product %d loaded in guest\n", val);
-            break;
-        }
-        driver_product_version = val;
-        break;
+    if (c == '\n' || log_buffer_off == sizeof(log_buffer) - 1) {
+        log_buffer[log_buffer_off] = 0;
+        throttle(log_buffer_off);
+        fprintf(logfile, "%s\n", log_buffer);
+        log_buffer_off = 0;
+        return;
+    }
+
+    if (isspace(c))
+        c = ' ';
+
+    if (c == ' ' || isgraph(c))
+        log_buffer[log_buffer_off++] = c;
+}
+
+static uint8_t unplug_version;
+static int unplug_version_isset;
+
+static int drivers_blacklisted;
+
+static uint8_t
+get_unplug_version(void)
+{
+    return unplug_version;
+}
+
+static int
+set_unplug_version(uint8_t version)
+{
+    if (unplug_version_isset)
+        return 0;
+
+    unplug_version = version;
+    unplug_version_isset = 1;
+
+    if (version > 1)
+        drivers_blacklisted = 1;
+
+    fprintf(logfile, "UNPLUG: protocol version set to %d "
+            "(drivers %sblacklisted)\n", unplug_version,
+            (!drivers_blacklisted) ? "not " : "");
+
+    return 1;
+}
+
+#define UNPLUG_ALL_IDE_DISKS_BIT    0
+#define UNPLUG_ALL_NICS_BIT         1
+#define UNPLUG_AUX_IDE_DISKS_BIT    2
+
+static void
+version_0_1_unplug(uint16_t mask)
+{
+    if (drivers_blacklisted)
+        return;
+
+    if (mask & (1 << UNPLUG_ALL_IDE_DISKS_BIT)) {
+        ide_unplug_all_harddisks();
+    }
+
+    if (mask & (1 << UNPLUG_ALL_NICS_BIT)) {
+        pci_unplug_all_netifs();
+        net_tap_shutdown_all();
+    }
+
+    if (mask & (1 << UNPLUG_AUX_IDE_DISKS_BIT)) {
+        ide_unplug_aux_harddisks();
     }
 }
 
-static void platform_fixed_ioport_write4(void *opaque, uint32_t addr,
-                                         uint32_t val)
-{
-    switch (addr - 0x10) {
-    case 0:
-        /* PV driver version */
-        if (driver_product_version == 0) {
-            fprintf(logfile,
-                    "Drivers tried to set their version number (%d) before setting the product number?\n",
-                    val);
-            return;
-        }
-        fprintf(logfile, "PV driver build %d\n", val);
-        if (xenstore_pv_driver_build_blacklisted(driver_product_version,
-                                                 val)) {
-            fprintf(logfile, "Drivers are blacklisted!\n");
-            drivers_blacklisted = 1;
-        }
-        break;
-    }
-}
+#define UNPLUG_TYPE_IDE 1
+#define UNPLUG_TYPE_NIC 2
 
-static void platform_fixed_ioport_write1(void *opaque, uint32_t addr, uint32_t val)
+static void
+version_2_unplug(uint8_t type, uint8_t index)
 {
-    switch (addr - 0x10) {
-    case 0: /* Platform flags */ {
-        hvmmem_type_t mem_type = (val & PFFLAG_ROM_LOCK) ?
-            HVMMEM_ram_ro : HVMMEM_ram_rw;
-        if (xc_hvm_set_mem_type(xc_handle, domid, mem_type, 0xc0, 0x40))
-            fprintf(logfile,"platform_fixed_ioport: unable to change ro/rw "
-                    "state of ROM memory area!\n");
-        else {
-            platform_flags = val & PFFLAG_ROM_LOCK;
-            fprintf(logfile,"platform_fixed_ioport: changed ro/rw "
-                    "state of ROM memory area. now is %s state.\n",
-                    (mem_type == HVMMEM_ram_ro ? "ro":"rw"));
-        }
-        break;
-    }
-    case 2:
-        /* Send bytes to syslog */
-        if (val == '\n' || log_buffer_off == sizeof(log_buffer) - 1) {
-            /* Flush buffer */
-            log_buffer[log_buffer_off] = 0;
-            throttle(log_buffer_off);
-            fprintf(logfile, "%s\n", log_buffer);
-            log_buffer_off = 0;
-            break;
-        }
-        log_buffer[log_buffer_off++] = val;
-        break;
-    }
-}
+    if (drivers_blacklisted)
+        return;
 
-static uint32_t platform_fixed_ioport_read2(void *opaque, uint32_t addr)
-{
-    switch (addr - 0x10) {
-    case 0:
-        if (drivers_blacklisted) {
-            /* The drivers will recognise this magic number and refuse
-             * to do anything. */
-            return 0xd249;
-        } else {
-            /* Magic value so that you can identify the interface. */
-            return 0x49d2;
-        }
+    switch (type) {
+    case UNPLUG_TYPE_IDE:
+        ide_unplug_harddisk(index);
+        break;
+    case UNPLUG_TYPE_NIC: {
+        int id;
+
+        if ((id = pci_unplug_nic(index)) >= 0)
+            net_tap_shutdown_vlan(id);
+
+        break;
+    }
     default:
-        return 0xffff;
+        fprintf(logfile, "UNPLUG: unrecognized type %02x\n",
+                type);
+        break;
     }
 }
 
-static uint32_t platform_fixed_ioport_read1(void *opaque, uint32_t addr)
+static uint16_t product_id;
+static uint32_t build_number;
+
+static void
+set_product_id(uint16_t id)
 {
-    switch (addr - 0x10) {
-    case 0:
-        /* Platform flags */
-        return platform_flags;
-    case 2:
-        /* Version number */
-        return 1;
+    product_id = id;
+}
+
+static void
+set_build_number(uint32_t number)
+{
+    if (product_id == 0) {
+        fprintf(logfile, "UNPLUG: product_id has not been set\n");
+    } else {    
+        build_number = number;
+
+        fprintf(logfile, "UNPLUG: product_id: %d build_number: %d\n",
+                product_id, build_number);
+
+        drivers_blacklisted =
+            xenstore_pv_driver_build_blacklisted(product_id,
+                                                 build_number);
+
+        fprintf(logfile, "UNPLUG: drivers %sblacklisted\n",
+                (!drivers_blacklisted) ? "not " : "");
+    }
+
+}
+
+static uint32_t
+platform_fixed_ioport_read4(void *opaque, uint32_t addr)
+{
+    return 0xFFFFFFFF;
+}
+
+static uint32_t
+platform_fixed_ioport_read2(void *opaque, uint32_t addr)
+{
+    uint16_t val;
+
+    switch (addr) {
+    case 0x10:
+        val = (!drivers_blacklisted) ? 0x49d2 : 0xd249;
+        break;
+
     default:
-        return 0xff;
+        val = 0xFFFF;
+        break;
+    }
+
+    return (uint32_t)val;
+}
+
+static uint32_t
+platform_fixed_ioport_read1(void *opaque, uint32_t addr)
+{
+    uint8_t val;
+
+    switch (addr) {
+    case 0x10:
+        val = get_platform_flags();
+        break;
+
+    case 0x12:
+        /*
+         * Reading this port implicitly sets the unplug protocol
+         * version to at least 1. If the vserion is already been
+         * explicitly set then this call has no effect.
+         */
+        (void) set_unplug_version(1);
+
+        val = get_unplug_version();
+
+        fprintf(logfile, "UNPLUG: protocol %d active\n", val);
+        break;
+
+    default:
+        val = 0xFF;
+    }
+
+    return (uint32_t)val;
+}
+
+static void
+platform_fixed_ioport_write4(void *opaque, uint32_t addr, uint32_t val)
+{
+    if (unplug_version != 0)
+        set_build_number(val);
+}
+
+static void
+platform_fixed_ioport_write2(void *opaque, uint32_t addr, uint32_t val)
+{
+    switch (addr) {
+    case 0x10:
+        if (unplug_version == 0 ||
+            unplug_version == 1) {
+            uint16_t mask = (uint16_t)val;
+
+            version_0_1_unplug(mask);
+        }
+        break;
+
+    case 0x12:
+        if (unplug_version != 0)
+            set_product_id((uint16_t)val);
+
+        break;
+    }
+}
+
+static void
+platform_fixed_ioport_write1(void *opaque, uint32_t addr, uint32_t val)
+{
+    static uint8_t unplug_type;
+
+    switch (addr) {
+    case 0x10:
+        set_platform_flags((uint8_t)val);
+        break;
+
+    case 0x11:
+        if (unplug_version == 2)
+            unplug_type = (uint8_t)val;
+
+        break;
+
+    case 0x12:
+        write_log((char)val);
+        break;
+
+    case 0x13:
+        /*
+         * The first write to this port sets the unpluc protocol version.
+         * Any subsequent write, providing the protocol is set to 2, will
+         * be treated as an unplug index.
+         */
+        if (!set_unplug_version((uint8_t)val) &&
+            unplug_version == 2)
+            version_2_unplug(unplug_type, (uint8_t)val);
+
+        break;
     }
 }
 
 static void platform_fixed_ioport_save(QEMUFile *f, void *opaque)
 {
-    qemu_put_8s(f, &platform_flags);
+    uint8_t flags = get_platform_flags();
+
+    qemu_put_8s(f, &flags);
 }
 
 static int platform_fixed_ioport_load(QEMUFile *f, void *opaque, int version_id)
@@ -279,7 +423,7 @@ static int platform_fixed_ioport_load(QEMUFile *f, void *opaque, int version_id)
         return -EINVAL;
 
     qemu_get_8s(f, &flags);
-    platform_fixed_ioport_write1(NULL, 0x10, flags);
+    set_platform_flags(flags);
 
     return 0;
 }
@@ -295,10 +439,11 @@ void platform_fixed_ioport_init(void)
     register_ioport_write(0x10, 16, 4, platform_fixed_ioport_write4, NULL);
     register_ioport_write(0x10, 16, 2, platform_fixed_ioport_write2, NULL);
     register_ioport_write(0x10, 16, 1, platform_fixed_ioport_write1, NULL);
+    register_ioport_read(0x10, 16, 4, platform_fixed_ioport_read4, NULL);
     register_ioport_read(0x10, 16, 2, platform_fixed_ioport_read2, NULL);
     register_ioport_read(0x10, 16, 1, platform_fixed_ioport_read1, NULL);
 
-    platform_fixed_ioport_write1(NULL, 0x10, 0);
+    set_platform_flags(0);
 }
 
 static uint32_t xen_platform_ioport_readb(void *opaque, uint32_t addr)
@@ -314,26 +459,21 @@ static void xen_platform_ioport_writeb(void *opaque, uint32_t addr, uint32_t val
     val  &= 0xff;
 
     switch (addr) {
-    case 0: /* Platform flags */
-        platform_fixed_ioport_write1(NULL, 0x10, val);
+    case 0:
+        set_platform_flags((uint8_t)val);
         break;
     case 8:
-        {
-            if (val == '\n' || log_buffer_off == sizeof(log_buffer) - 1) {
-                /* Flush buffer */
-                log_buffer[log_buffer_off] = 0;
-                throttle(log_buffer_off);
-                fprintf(logfile, "%s\n", log_buffer);
-                log_buffer_off = 0;
-                break;
-            }
-            log_buffer[log_buffer_off++] = val;
-        }
+        write_log((char)val);
         break;
     default:
         break;
     }
 }
+
+typedef struct PCIXenPlatformState
+{
+  PCIDevice  pci_dev;
+} PCIXenPlatformState;
 
 static void platform_ioport_map(PCIDevice *pci_dev, int region_num, uint32_t addr, uint32_t size, int type)
 {
@@ -410,8 +550,9 @@ static int xen_pci_load(QEMUFile *f, void *opaque, int version_id)
     if (version_id >= 2) {
         if (version_id == 2) {
             uint8_t flags;
+
             qemu_get_8s(f, &flags);
-            xen_platform_ioport_writeb(d, 0, flags);
+            set_platform_flags(flags);
         }
         qemu_get_be64(f);
     }

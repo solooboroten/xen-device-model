@@ -162,7 +162,8 @@ void pci_piix3_ide_init(PCIBus *bus, BlockDriverState **hd_table, int devfn,
                         qemu_irq *pic);
 void pci_piix4_ide_init(PCIBus *bus, BlockDriverState **hd_table, int devfn,
                         qemu_irq *pic);
-void ide_unplug_harddisks(void);
+void ide_unplug_harddisk(int i);
+void ide_unplug_all_harddisks(void);
 void ide_unplug_aux_harddisks(void);
 
 /* ne2000.c */

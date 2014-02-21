@@ -1987,13 +1987,36 @@ void net_client_check(void)
     }
 }
 
+static void net_tap_shutdown(struct TAPState *tap)
+{
+    VLANClientState *vc = tap->vc;
+
+    fprintf(stderr, "%s: model=%s,name=%s\n", __func__, vc->model, vc->name);
+
+    qemu_set_fd_handler2(tap->fd, 0,0,0,0);
+    close(tap->fd);
+}
+
 void net_tap_shutdown_all(void)
 {
-    struct IOHandlerRecord **pioh, *ioh;
+    struct TAPState *tap;
 
-    while (head_net_tap) {
-        qemu_set_fd_handler2(head_net_tap->fd, 0,0,0,0);
-        close(head_net_tap->fd);
-        head_net_tap = head_net_tap->next;
+    for (tap = head_net_tap; tap; tap = tap->next)
+        net_tap_shutdown(tap);
+}
+
+void net_tap_shutdown_vlan(int id)
+{
+    struct TAPState *tap;
+
+    for (tap = head_net_tap; tap; tap = tap->next) {
+        VLANClientState *vc = tap->vc;
+        VLANState *vlan = vc->vlan;
+
+        if (vlan->id != id)
+            continue;
+        
+        net_tap_shutdown(tap);
     }
 }
+

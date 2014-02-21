@@ -46,7 +46,8 @@ void set_vram_mapping(void *opaque, unsigned long begin, unsigned long end);
 void unset_vram_mapping(void *opaque);
 #endif
 
-void pci_unplug_netifs(void);
+void pci_unplug_all_netifs(void);
+int pci_unplug_nic(int i);
 void destroy_hvm_domain(void);
 void unregister_iomem(target_phys_addr_t start);
 

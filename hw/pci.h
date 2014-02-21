@@ -277,6 +277,7 @@ PCIBus *pci_register_bus(pci_set_irq_fn set_irq, pci_map_irq_fn map_irq,
 
 PCIDevice *pci_nic_init(PCIBus *bus, NICInfo *nd, int devfn,
                   const char *default_model);
+void pci_dev_unplug(PCIDevice *dev);
 void pci_data_write(void *opaque, uint32_t addr, uint32_t val, int len);
 uint32_t pci_data_read(void *opaque, uint32_t addr, int len);
 int pci_bus_num(PCIBus *s);

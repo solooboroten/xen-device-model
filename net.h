@@ -103,6 +103,7 @@ void net_cleanup(void);
 int slirp_is_inited(void);
 void net_client_check(void);
 void net_tap_shutdown_all(void);
+void net_tap_shutdown_vlan(int id);
 void net_host_device_add(const char *device, const char *opts);
 void net_host_device_remove(int vlan_id, const char *device);
 

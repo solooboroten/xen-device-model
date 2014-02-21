@@ -3096,44 +3096,57 @@ static void ide_reset(IDEState *s)
 
 /* Unplug all of the IDE hard disks, starting at index @start in the
    table. */
-static void _ide_unplug_harddisks(int start)
+void ide_unplug_harddisk(int i)
 {
     IDEState *s;
-    int i, j;
+    int j;
 
     if (!principal_ide_controller) {
         fprintf(stderr, "No principal controller?\n");
         return;
     }
+
     /* wait for outstanding aio requests */
     qemu_aio_flush();
-    for (i = start; i < 4; i++) {
-        s = principal_ide_controller->ide_if + i;
-        if (!s->bs)
-            continue; /* drive not present */
-        if (s->is_cdrom)
-            continue; /* cdrom */
-        /* Is a hard disk, unplug it. */
-        for (j = 0; j < nb_drives; j++)
-            if (drives_table[j].bdrv == s->bs)
-                drives_table[j].bdrv = NULL;
-        bdrv_close(s->bs);
-        s->bs = NULL;
-        ide_reset(s);
+
+    s = principal_ide_controller->ide_if + i;
+    if (!s->bs)
+        return; /* drive not present */
+ 
+    if (s->is_cdrom)
+        return; /* cdrom */
+ 
+    /* Is a hard disk, unplug it. */
+    for (j = 0; j < nb_drives; j++) {
+        if (drives_table[j].bdrv == s->bs) {
+            fprintf(stderr, "%s: drive %d\n", __func__, i, j);
+            drives_table[j].bdrv = NULL;
+        }
     }
+ 
+    bdrv_flush(s->bs);
+    bdrv_close(s->bs);
+    s->bs = NULL;
+    ide_reset(s);
 }
 
 /* Unplug all hard disks except for the primary master (which will
    almost always be the boot device). */
 void ide_unplug_aux_harddisks(void)
 {
-    _ide_unplug_harddisks(1);
+    int i;
+
+    for (i = 1; i < 4; i++)
+        ide_unplug_harddisk(i);
 }
 
 /* Unplug all hard disks, including the boot device. */
-void ide_unplug_harddisks(void)
+void ide_unplug_all_harddisks(void)
 {
-    _ide_unplug_harddisks(0);
+    int i;
+
+    for (i = 0; i < 4; i++)
+        ide_unplug_harddisk(i);
 }
 
 static void ide_init2(IDEState *ide_state,

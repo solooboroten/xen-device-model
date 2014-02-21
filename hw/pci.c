@@ -263,6 +263,10 @@ PCIDevice *pci_register_device(PCIBus *bus, const char *name,
     pci_dev->bus = bus;
     pci_dev->devfn = devfn;
     pstrcpy(pci_dev->name, sizeof(pci_dev->name), name);
+
+    fprintf(stderr, "%s: %02x:%02x:%02x (%s)\n", __func__, bus->bus_num,
+            devfn >> 3, devfn & 7, name);
+
     memset(pci_dev->irq_state, 0, sizeof(pci_dev->irq_state));
     pci_set_default_subsystem_id(pci_dev);
 
@@ -838,48 +842,68 @@ PCIDevice *pci_nic_init(PCIBus *bus, NICInfo *nd, int devfn,
     return NULL;
 }
 
-void pci_unplug_netifs(void)
+void pci_dev_unplug(PCIDevice *dev)
+{
+    PCIBus *bus = dev->bus;
+
+    fprintf(stderr, "%s: %02x:%02x:%02x\n", __func__, bus->bus_num,
+            dev->devfn >> 3, dev->devfn & 7);
+
+    if (test_pci_devfn(dev->devfn) == 1) {
+        fprintf(stderr, "skipping hotplug device\n");
+        return;
+    }
+
+    bus->devices[dev->devfn] = NULL;
+    pci_unregister_io_regions(dev);
+}
+
+void pci_unplug_all_netifs(void)
 {
     PCIBus *bus;
-    PCIDevice *dev;
-    PCIIORegion *region;
-    int x;
-    int i;
+    int devfn;
 
     /* We only support one PCI bus */
     for (bus = first_bus; bus; bus = NULL) {
-       for (x = 0; x < 256; x++) {
-           dev = bus->devices[x];
-           if (dev &&
-               dev->config[0xa] == 0 &&
-               dev->config[0xb] == 2
-#ifdef CONFIG_PASSTHROUGH
-               && test_pci_devfn(x) != 1
-#endif
-               ) {
-               /* Found a netif.  Remove it from the bus.  Note that
-                  we don't free it here, since there could still be
-                  references to it floating around.  There are only
-                  ever one or two structures leaked, and it's not
-                  worth finding them all. */
-               bus->devices[x] = NULL;
-               for (i = 0; i < PCI_NUM_REGIONS; i++) {
-                   region = &dev->io_regions[i];
-                   if (region->addr == (uint32_t)-1 ||
-                       region->size == 0)
-                       continue;
-                   fprintf(logfile, "region type %d at [%x,%x).\n",
-                           region->type, region->addr,
-                           region->addr+region->size);
-                   if (region->type == PCI_ADDRESS_SPACE_IO) {
-                       isa_unassign_ioport(region->addr, region->size);
-                   } else if (region->type == PCI_ADDRESS_SPACE_MEM) {
-                       unregister_iomem(region->addr);
-                   }
-               }
-           }
-       }
+        for(devfn = 0; devfn < 256; devfn++) {
+            PCIDevice *dev = bus->devices[devfn];
+
+            if (dev &&
+                dev->config[0xa] == 0 &&
+                dev->config[0xb] == 2) {
+                pci_dev_unplug(dev);
+            }
+        }
     }
+}
+
+int pci_unplug_nic(int i)
+{
+    NICInfo *nd;
+    PCIDevice *pci_dev;
+
+    if (i >= nb_nics)
+        return -1;
+
+    nd = &nd_table[i];
+
+    if (!nd->used)
+        return -1;
+
+    fprintf(stderr, "%s: %02x:%02x:%02x:%02x:%02x:%02x\n", __func__,
+            nd->macaddr[0], nd->macaddr[1], nd->macaddr[2],
+            nd->macaddr[3], nd->macaddr[4], nd->macaddr[5]);
+
+    pci_dev = nd->private;
+    if (!pci_dev) {
+        fprintf(stderr, "%s: not PCI\n", __func__);
+        return -1;
+    }
+
+    pci_dev_unplug(pci_dev);
+
+    nd->used = 0;
+    return nd->vlan->id;
 }
 
 typedef struct {

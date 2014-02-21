@@ -4291,6 +4291,7 @@ enum {
     QEMU_OPTION_gfx_passthru,
     QEMU_OPTION_pci_emulation,
     QEMU_OPTION_vncunused,
+    QEMU_OPTION_vnclisten,
     QEMU_OPTION_videoram,
     QEMU_OPTION_std_vga,
     QEMU_OPTION_domid,
@@ -4473,6 +4474,7 @@ static const QEMUOption qemu_options[] = {
     { "gfx_passthru", 0, QEMU_OPTION_gfx_passthru},
     { "pciemulation", HAS_ARG, QEMU_OPTION_pci_emulation },
     { "vncunused", 0, QEMU_OPTION_vncunused },
+    { "vnclisten", HAS_ARG, QEMU_OPTION_vnclisten },
     { "vcpus", HAS_ARG, QEMU_OPTION_vcpus },
     { "vcpu_avail", HAS_ARG, QEMU_OPTION_vcpu_avail },
 #if defined(CONFIG_XEN) && !defined(CONFIG_DM)
@@ -5503,6 +5505,7 @@ geometry_error:
                     exit(1);
                 }
                 break;
+            case QEMU_OPTION_vnclisten:
 	    case QEMU_OPTION_vnc:
 		vnc_display = optarg;
 		break;

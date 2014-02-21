@@ -4961,7 +4961,7 @@ int main(int argc, char **argv, char **envp)
         serial_devices[i] = NULL;
     serial_device_index = 0;
 
-    parallel_devices[0] = "vc:80Cx24C";
+    parallel_devices[0] = "null";
     for(i = 1; i < MAX_PARALLEL_PORTS; i++)
         parallel_devices[i] = NULL;
     parallel_device_index = 0;

@@ -1998,6 +1998,33 @@ void xenstore_store_pv_console_info(int i, CharDriverState *chr,
     }
 }
 
+unsigned int
+xenstore_get_cores_per_socket(int domid)
+{
+    char *buf = NULL, *path = NULL, *s;
+    unsigned int cores_per_socket = 0;
+
+    path = xs_get_domain_path(xsh, domid);
+    if (path == NULL) {
+        fprintf(logfile, "xs_get_domain_path(%d): error\n", domid);
+        goto out;
+    }
+    pasprintf(&buf, "%s/platform/cores-per-socket", path);
+
+    s = xs_read(xsh, XBT_NULL, buf, NULL);
+    if (s) {
+	if (sscanf(s, "%d", &cores_per_socket) != 1)
+	    cores_per_socket = 0;
+	free(s);
+    }
+
+  out:
+    free(path);
+    free(buf);
+    return cores_per_socket;
+}
+
+
 void xenstore_set_guest_clipboard(const char *text, size_t len)
 {
     char *dup;

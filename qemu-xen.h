@@ -134,6 +134,7 @@ int xenstore_find_device(BlockDriverState *bs);
 void xenstore_dm_finished_startup(void);
 void xenstore_set_device_locked(BlockDriverState *bs);
 void xenstore_set_guest_clipboard(const char *text, size_t len);
+unsigned int xenstore_get_cores_per_socket(int domid);
 
 /* xenfbfront.c */
 int xenfb_pv_display_init(DisplayState *ds);

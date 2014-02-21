@@ -4746,6 +4746,7 @@ static void termsig_setup(void)
 }
 
 #endif
+    unsigned int cores_per_socket;
 
 /* 32bit Hamming weight */
 static unsigned int hweight32(unsigned int w)
@@ -5908,6 +5909,10 @@ geometry_error:
         xenstore_parse_domain_config(domid);
 #endif /* CONFIG_STUBDOM */
     }
+
+    cores_per_socket = xenstore_get_cores_per_socket(domid);
+    if (cores_per_socket)
+       xc_domain_set_cores_per_socket(xc_handle, domid, cores_per_socket);
 
     /* we always create the cdrom drive, even if no disk is there */
 

@@ -1423,6 +1423,7 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
 {
     int i;
     unsigned int enc = 0;
+    int is_xencenter = 0;
 
     vnc_zlib_init(vs);
     vs->features = 0;
@@ -1463,7 +1464,12 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
         case VNC_ENCODING_WMVi:
             vs->features |= VNC_FEATURE_WMVI_MASK;
             break;
-        case VNC_ENCODING_COMPRESSLEVEL0 ... VNC_ENCODING_COMPRESSLEVEL0 + 9:
+        case VNC_ENCODING_XENCENTER:
+            is_xencenter = 1;
+            break;
+        case VNC_ENCODING_COMPRESSLEVEL0:
+        case VNC_ENCODING_COMPRESSLEVEL0 + 1:
+        case VNC_ENCODING_COMPRESSLEVEL0 + 3 ... VNC_ENCODING_COMPRESSLEVEL0 + 9:
             vs->tight_compression = (enc & 0x0F);
             break;
         case VNC_ENCODING_QUALITYLEVEL0 ... VNC_ENCODING_QUALITYLEVEL0 + 9:
@@ -1474,6 +1480,9 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
             break;
         }
     }
+    /* disable copyrect for xencenter */
+    if (is_xencenter)
+        vs->features &= ~VNC_FEATURE_COPYRECT_MASK;
 
     check_pointer_type_change(vs, kbd_mouse_is_absolute());
 }

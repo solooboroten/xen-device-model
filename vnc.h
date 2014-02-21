@@ -70,6 +70,7 @@ enum {
 #define VNC_ENCODING_EXT_KEY_EVENT        0XFFFFFEFE /* -258 */
 #define VNC_ENCODING_AUDIO                0XFFFFFEFD /* -259 */
 #define VNC_ENCODING_WMVi                 0x574D5669
+#define VNC_ENCODING_XENCENTER            0xFFFFFF02 /* -254 */
 
 /*****************************************************************************
  *

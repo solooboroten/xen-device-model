@@ -653,6 +653,12 @@ void xenstore_parse_domain_config(int hvm_domid)
         }
 #endif
 
+        free(mode);
+	if (pasprintf(&buf, "%s/mode", bpath) == -1)
+	    mode = NULL;
+	else
+	    mode = xs_read(xsh, XBT_NULL, buf, &len);
+
         bs = bdrv_new(dev);
         /* check if it is a cdrom */
         if (danger_type) {
@@ -672,6 +678,9 @@ void xenstore_parse_domain_config(int hvm_domid)
                 }
             }
         }
+
+        if (mode && strchr(mode, 'w') == NULL)
+            bdrv_set_read_only(bs);
 
         /* open device now if media present */
 #ifdef CONFIG_STUBDOM

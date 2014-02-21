@@ -360,7 +360,6 @@ int bdrv_open2(BlockDriverState *bs, const char *filename, int flags,
     char tmp_filename[PATH_MAX];
     char backing_filename[PATH_MAX];
 
-    bs->read_only = 0;
     bs->is_temporary = 0;
     bs->encrypted = 0;
     bs->valid_key = 0;
@@ -419,11 +418,13 @@ int bdrv_open2(BlockDriverState *bs, const char *filename, int flags,
     }
     bs->drv = drv;
     bs->opaque = qemu_mallocz(drv->instance_size);
-    /* Note: for compatibility, we open disk image files as RDWR, and
-       RDONLY as fallback */
-    if (!(flags & BDRV_O_FILE))
-        open_flags = (flags & BDRV_O_ACCESS) | (flags & BDRV_O_CACHE_MASK);
-    else
+    if (!(flags & BDRV_O_FILE)) {
+        open_flags = flags & BDRV_O_CACHE_MASK;
+        if (bs->read_only)
+            open_flags |= BDRV_O_RDONLY;
+        else
+            open_flags |= BDRV_O_RDWR;
+    } else
         open_flags = flags & ~(BDRV_O_FILE | BDRV_O_SNAPSHOT);
     ret = drv->bdrv_open(bs, filename, open_flags);
     if ((ret == -EACCES || ret == -EPERM) && !(flags & BDRV_O_FILE)) {
@@ -944,6 +945,11 @@ int bdrv_is_removable(BlockDriverState *bs)
 int bdrv_is_read_only(BlockDriverState *bs)
 {
     return bs->read_only;
+}
+
+void bdrv_set_read_only(BlockDriverState *bs)
+{
+    bs->read_only = 1;
 }
 
 int bdrv_is_sg(BlockDriverState *bs)

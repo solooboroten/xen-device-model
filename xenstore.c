@@ -560,6 +560,7 @@ void xenstore_parse_domain_config(int hvm_domid)
     } else {
         guest_path = strdup(danger_path);
     }
+    xs_watch(xsh, "@releaseDomain", "releaseDomain");
 
     if (pasprintf(&buf, "%s/keymap", guest_path) != -1)
         xs_watch(xsh, buf, KEYMAP_TOKEN); // Ignore failure -- we can muddle on.i
@@ -1350,6 +1351,7 @@ void xenstore_process_event(void *opaque)
 {
     char **vec, *offset, *bpath = NULL, *buf = NULL, *drv = NULL, *image = NULL;
     unsigned int len, num, hd_index, i;
+    xc_dominfo_t dominfo;
 
     vec = xs_read_watch(xsh, &num);
     if (!vec)
@@ -1386,6 +1388,18 @@ void xenstore_process_event(void *opaque)
 
     if (!strcmp(vec[XS_WATCH_TOKEN], "vcpu-set")) {
         xenstore_process_vcpu_set_event(vec);
+        goto out;
+    }
+
+    if (!strcmp(vec[XS_WATCH_TOKEN], "releaseDomain")) {
+        int rc;
+        if ( (rc=xc_domain_getinfo(xc_handle, domid, 1, &dominfo)) != 1
+            || dominfo.domid != domid || dominfo.dying)
+            qemu_system_exit_request();
+        else
+            fprintf(stderr," releaseDomain signal caught, but domain %d not dead:\n" \
+                    "   rc %d dominfo.domid %d dominfo.dying %d\n",
+                    domid, rc, dominfo.domid, dominfo.dying);
         goto out;
     }
 

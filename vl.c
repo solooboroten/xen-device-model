@@ -3624,6 +3624,7 @@ static QEMUResetEntry *first_reset_entry;
 static int reset_requested;
 static int shutdown_requested;
 static int powerdown_requested;
+static int exit_requested;
 
 int qemu_shutdown_requested(void)
 {
@@ -3643,6 +3644,13 @@ int qemu_powerdown_requested(void)
 {
     int r = powerdown_requested;
     powerdown_requested = 0;
+    return r;
+}
+
+int qemu_exit_requested(void)
+{
+    int r = exit_requested;
+    exit_requested = 0;
     return r;
 }
 
@@ -3697,6 +3705,11 @@ void qemu_system_powerdown_request(void)
     fprintf(stderr, "requesting powerdown\n");
     if (cpu_single_env)
         cpu_interrupt(cpu_single_env, CPU_INTERRUPT_EXIT);
+}
+
+void qemu_system_exit_request(void)
+{
+    exit_requested = 1;
 }
 
 #ifdef _WIN32
@@ -3825,6 +3838,12 @@ void main_loop_wait(int timeout)
         slirp_select_poll(&rfds, &wfds, &xfds);
     }
 #endif
+
+    if (qemu_exit_requested()) {
+        /* Flush the cache and cancel outstanding aio requests */
+        bdrv_flush_all();
+        exit(0);
+    }
 
     /* vm time timers */
     if (vm_running && likely(!(cur_cpu->singlestep_enabled & SSTEP_NOTIMER)))

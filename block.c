@@ -411,7 +411,7 @@ int bdrv_open2(BlockDriverState *bs, const char *filename, int flags,
         if (!drv)
             drv = &bdrv_raw;
     } else if (!drv) {
-        drv = find_image_format(filename);
+        drv = &bdrv_raw;
     }
     if (!drv) {
         ret = -ENOENT;

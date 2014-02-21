@@ -160,6 +160,7 @@ uint8_t *qemu_map_cache(target_phys_addr_t phys_addr, uint8_t lock)
 
     if (!test_bit(address_offset>>XC_PAGE_SHIFT, entry->valid_mapping)) {
         last_address_index = ~0UL;
+        last_address_vaddr = NULL;
         memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
         return NULL;
     }
@@ -185,11 +186,6 @@ void qemu_invalidate_entry(uint8_t *buffer)
     unsigned long paddr_index;
     int found = 0;
     
-    if (last_address_vaddr == buffer) {
-        last_address_index =  ~0UL;
-        memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
-    }
-
     TAILQ_FOREACH(reventry, &locked_entries, next) {
         if (reventry->vaddr_req == buffer) {
             paddr_index = reventry->paddr_index;
@@ -206,6 +202,12 @@ void qemu_invalidate_entry(uint8_t *buffer)
     }
     TAILQ_REMOVE(&locked_entries, reventry, next);
     qemu_free(reventry);
+
+    if (paddr_index == last_address_index) {
+        last_address_index =  ~0UL;
+        last_address_vaddr = NULL;
+        memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
+    }
 
     entry = &mapcache_entry[paddr_index % nr_buckets];
     while (entry && entry->paddr_index != paddr_index) {

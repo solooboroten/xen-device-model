@@ -671,6 +671,8 @@ static void vnc_dpy_copy(DisplayState *ds, int src_x, int src_y, int dst_x, int 
     for (vs = vd->clients; vs != NULL; vs = vn) {
         vn = vs->next;
         if (vnc_has_feature(vs, VNC_FEATURE_COPYRECT)) {
+            if (!vs->need_update)
+                vs->need_update++;
             vs->force_update = 1;
             vnc_update_client(vs, 1);
             /* vs might be free()ed here */
@@ -750,7 +752,7 @@ static int find_and_clear_dirty_height(struct VncState *vs,
 
 static int vnc_update_client(VncState *vs, int has_dirty)
 {
-    if (vs->need_update && vs->csock != -1) {
+    if (vs->need_update > 0 && vs->csock != -1) {
         VncDisplay *vd = vs->vd;
 	int y;
 	int n_rectangles;
@@ -803,6 +805,9 @@ static int vnc_update_client(VncState *vs, int has_dirty)
 	vs->output.buffer[saved_offset + 1] = n_rectangles & 0xFF;
 	vnc_flush(vs);
         vs->force_update = 0;
+        vs->need_update--;
+        if (vs->need_update < 0)
+            vs->need_update = 0;
 
         return n_rectangles;
     }
@@ -1350,7 +1355,7 @@ static void framebuffer_update_request(VncState *vs, int incremental,
         h = ds_get_height(vs->ds) - y_position;
 
     int i;
-    vs->need_update = 1;
+    vs->need_update++;
     if (!incremental) {
         vs->force_update = 1;
 	for (i = 0; i < h; i++) {

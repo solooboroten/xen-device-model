@@ -488,6 +488,8 @@ void xenstore_parse_domain_config(int hvm_domid)
     char *buf = NULL;
     char *fpath = NULL, *bpath = NULL,
         *dev = NULL, *params = NULL, *drv = NULL;
+    char *serial_c;
+    char serial_temp[PATH_MAX - 5];
     int i, ret;
     unsigned int len, num, hd_index, pci_devid = 0;
     BlockDriverState *bs;
@@ -505,6 +507,23 @@ void xenstore_parse_domain_config(int hvm_domid)
 
     for(i = 0; i < MAX_DRIVES + 1; i++)
         media_filename[i] = NULL;
+
+    /* read the console output filename */
+    serial_c = xs_read(xsh, XBT_NULL, "/local/logconsole/@", NULL);
+    if (serial_c) {
+        serial_devices[0] = qemu_mallocz(PATH_MAX);
+	strcpy(serial_devices[0], "file:");
+	if (strstr(serial_c, "%s")) {
+            char *name = xenstore_vm_read(domid, "uuid", NULL);
+            /* format string exploit from xenstore?? */
+	    snprintf(serial_temp, sizeof(serial_temp), serial_c, name);
+            free(name);
+	}else
+	    snprintf(serial_temp, sizeof(serial_temp), serial_c, domid);
+	strncat(serial_devices[0], serial_temp, sizeof(serial_temp));
+	free(serial_c);
+    }
+    /* we don't care if it failed or not */
 
     danger_path = xs_get_domain_path(xsh, hvm_domid);
     if (danger_path == NULL) {

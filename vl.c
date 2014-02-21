@@ -233,6 +233,7 @@ static int no_frame = 0;
 #endif
 int no_quit = 0;
 CharDriverState *serial_hds[MAX_SERIAL_PORTS];
+char *serial_devices[MAX_SERIAL_PORTS];
 CharDriverState *parallel_hds[MAX_PARALLEL_PORTS];
 CharDriverState *virtcon_hds[MAX_VIRTIO_CONSOLES];
 #ifdef TARGET_I386
@@ -4812,7 +4813,6 @@ int main(int argc, char **argv, char **envp)
     const char *r, *optarg;
     CharDriverState *monitor_hd = NULL;
     const char *monitor_device;
-    const char *serial_devices[MAX_SERIAL_PORTS];
     int serial_device_index;
     const char *parallel_devices[MAX_PARALLEL_PORTS];
     int parallel_device_index;
@@ -5962,7 +5962,7 @@ int main(int argc, char **argv, char **envp)
             if (!virtcon_hds[i]) {
                 fprintf(stderr, "qemu: could not open virtio console '%s'\n",
                         devname);
-                exit(1);
+                continue;
             }
         }
     }

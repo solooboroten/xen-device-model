@@ -1363,6 +1363,18 @@ static void ext_key_event(VncState *vs, int down,
         do_key_event(vs, down, keycode, sym);
 }
 
+static void scan_event(VncState *vs, int down, uint32_t code)
+{
+
+    /* Prefix with 0xe0 if high bit set, except for NumLock key. */
+    if (code & 0x80 && code != 0xc5)
+	kbd_put_keycode(0xe0);
+    if (down)
+	kbd_put_keycode(code & 0x7f);
+    else
+	kbd_put_keycode(code | 0x80);
+}
+
 static void framebuffer_update_request(VncState *vs, int incremental,
 				       int x_position, int y_position,
 				       int w, int h)
@@ -1659,6 +1671,12 @@ static int protocol_client_msg(VncState *vs, uint8_t *data, size_t len)
 
 	client_cut_text(vs, read_u32(data, 4), data + 8);
 	break;
+    case 254:
+        if (len == 1)
+	    return 8;
+
+        scan_event(vs, read_u8(data, 1), read_u32(data, 4));
+        break;
     case 255:
         if (len == 1)
             return 2;

@@ -2387,6 +2387,10 @@ static void vnc_refresh(void *opaque)
         /* vs might be free()ed here */
         vs = vn;
     }
+    /* vd->timer could be NULL now if the last client disconnected,
+     * in this case don't update the timer */
+    if (vd->timer == NULL)
+        return;
 
     if (has_dirty && rects) {
         vd->timer_interval /= 2;

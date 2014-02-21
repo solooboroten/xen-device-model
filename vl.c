@@ -4048,6 +4048,7 @@ static void help(int exitcode)
            "-alt-grab       use Ctrl-Alt-Shift to grab mouse (instead of Ctrl-Alt)\n"
            "-no-quit        disable SDL window close capability\n"
            "-sdl            enable SDL\n"
+           "-nograb         never grab mouse and keyboard\n"
            "-disable-opengl disable OpenGL rendering, using SDL"
 #endif
            "-portrait       rotate graphical output 90 deg left (only PXA LCD)\n"
@@ -4248,6 +4249,7 @@ enum {
     QEMU_OPTION_alt_grab,
     QEMU_OPTION_no_quit,
     QEMU_OPTION_sdl,
+    QEMU_OPTION_nograb,
     QEMU_OPTION_portrait,
     QEMU_OPTION_vga,
     QEMU_OPTION_full_screen,
@@ -4376,6 +4378,7 @@ static const QEMUOption qemu_options[] = {
     { "alt-grab", 0, QEMU_OPTION_alt_grab },
     { "no-quit", 0, QEMU_OPTION_no_quit },
     { "sdl", 0, QEMU_OPTION_sdl },
+    { "nograb", 0, QEMU_OPTION_nograb },
 #endif
     { "portrait", 0, QEMU_OPTION_portrait },
     { "vga", HAS_ARG, QEMU_OPTION_vga },
@@ -5354,6 +5357,9 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_sdl:
                 sdl = 1;
+                break;
+            case QEMU_OPTION_nograb:
+                grab_disabled = 1;
                 break;
 #endif
 

@@ -304,6 +304,7 @@ void qemu_console_copy(DisplayState *ds, int src_x, int src_y,
 
 /* sdl.c */
 void sdl_display_init(DisplayState *ds, int full_screen, int no_frame, int opengl_enabled);
+extern int grab_disabled;
 
 /* cocoa.m */
 void cocoa_display_init(DisplayState *ds, int full_screen);

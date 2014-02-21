@@ -56,6 +56,7 @@ static SDL_Cursor *sdl_cursor_normal;
 static SDL_Cursor *sdl_cursor_hidden;
 static int absolute_enabled = 0;
 static int opengl_enabled;
+int grab_disabled = 0; /* If true, prevents any grabbing of mouse and keyboard */
 static uint8_t allocator;
 static SDL_PixelFormat host_format;
 static int scaling_active = 0;
@@ -570,6 +571,8 @@ static void sdl_show_cursor(void)
 
 static void sdl_grab_start(void)
 {
+    if (grab_disabled)
+        return;
     sdl_hide_cursor();
     SDL_WM_GrabInput(SDL_GRAB_ON);
     gui_grab = 1;
@@ -732,7 +735,7 @@ static void sdl_refresh(DisplayState *ds)
                         gui_key_modifier_pressed = 0;
                         if (gui_keysym == 0) {
                             /* exit/enter grab if pressing Ctrl-Alt */
-                            if (!gui_grab) {
+                            if (!gui_grab && !grab_disabled) {
                                 /* if the application is not active,
                                    do not try to enter grab state. It
                                    prevents
@@ -922,7 +925,10 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame, int openg
     atexit(sdl_cleanup);
     if (full_screen) {
         gui_fullscreen = 1;
-        gui_fullscreen_initial_grab = 1;
-        sdl_grab_start();
+        if (!grab_disabled)
+        {
+            gui_fullscreen_initial_grab = 1;
+            sdl_grab_start();
+        }
     }
 }

@@ -132,7 +132,7 @@ static void insert_media(void *opaque)
             else 
                 format = &bdrv_raw;
 
-            bdrv_open2(bs, media_filename[i], 0, format);
+            bdrv_open2(bs, media_filename[i], BDRV_O_CACHE_WB, format);
 #ifdef CONFIG_STUBDOM
             {
                 char *buf, *backend, *params_path, *params;

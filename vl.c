@@ -48,6 +48,7 @@
 #include "hw/xen.h"
 #include <stdlib.h>
 
+#include "privsep.h"
 #include "qemu-xen.h"
 
 #include <xen/hvm/hvm_info_table.h>
@@ -4352,6 +4353,7 @@ enum {
     QEMU_OPTION_tb_size,
     QEMU_OPTION_incoming,
     QEMU_OPTION_chroot,
+    QEMU_OPTION_priv,
     QEMU_OPTION_runas,
     QEMU_OPTION_crashdump_dir,
     QEMU_OPTION_crashdump_quota,
@@ -4508,6 +4510,7 @@ static const QEMUOption qemu_options[] = {
     { "tb-size", HAS_ARG, QEMU_OPTION_tb_size },
     { "incoming", HAS_ARG, QEMU_OPTION_incoming },
     { "chroot", HAS_ARG, QEMU_OPTION_chroot },
+    { "priv", 0, QEMU_OPTION_priv },
     { "runas", HAS_ARG, QEMU_OPTION_runas },
     { "dumpdir", HAS_ARG, QEMU_OPTION_crashdump_dir },
     { "dumpquota", HAS_ARG, QEMU_OPTION_crashdump_quota },
@@ -4864,6 +4867,7 @@ int main(int argc, char **argv, char **envp)
     int fd = 0;
     struct passwd *pwd = NULL;
     const char *chroot_dir = NULL;
+    int priv = 0;
     const char *run_as = NULL;
     char *crashdump_dir = NULL;
     long long crashdump_quota = 0;
@@ -5646,6 +5650,9 @@ geometry_error:
             case QEMU_OPTION_chroot:
                 chroot_dir = optarg;
                 break;
+            case QEMU_OPTION_priv:
+                priv = 1;
+                break;
             case QEMU_OPTION_runas:
                 run_as = optarg;
                 break;
@@ -5948,6 +5955,8 @@ geometry_error:
     if (crashdump_dir) {
         setup_crashdump(crashdump_dir, crashdump_quota);
     }
+
+    init_privxsh();
 
 #ifndef _WIN32
 #ifndef CONFIG_DM
@@ -6253,6 +6262,17 @@ geometry_error:
 
         close(fd);
     }
+
+#ifdef __linux__
+    if (!priv) {
+        if (xc_interface_restrict(xc_handle, domid) < 0)
+            fprintf(stderr, "xc_interface_restrict(): %s\n", strerror(errno));
+
+        xenstore_drop_privileges();
+
+        init_privsep();
+    }
+#endif
 
     main_loop();
     quit_timers();

@@ -22,6 +22,8 @@
  * THE SOFTWARE.
  */
 
+#include "privsep.h"
+
 static int get_keysym(const char *name)
 {
     const name2keysym_t *p;
@@ -90,18 +92,15 @@ static kbd_layout_t *parse_keyboard_layout(const char *language,
 					   kbd_layout_t * k)
 {
     FILE *f;
-    char file_name[1024];
     char line[1024];
     int len;
 
-    snprintf(file_name, sizeof(file_name),
-             "%s/keymaps/%s", bios_dir, language);
-
     if (!k)
 	k = qemu_mallocz(sizeof(kbd_layout_t));
-    if (!(f = fopen(file_name, "r"))) {
+    f = privsep_open_keymap(language);
+    if (!f) {
 	fprintf(stderr,
-		"Could not read keymap file: '%s'\n", file_name);
+		"Could not read keymap file: '%s'\n", language);
 	return 0;
     }
     for(;;) {

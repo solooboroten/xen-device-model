@@ -32,6 +32,7 @@
 #ifdef CONFIG_AIO
 #include "posix-aio-compat.h"
 #endif
+#include "privsep.h"
 
 #ifdef CONFIG_COCOA
 #include <paths.h>
@@ -147,10 +148,15 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
 
     fd = open(filename, open_flags, 0644);
     if (fd < 0) {
-        ret = -errno;
-        if (ret == -EROFS)
-            ret = -EACCES;
-        return ret;
+        fd = privsep_open_ro(filename);
+        if (fd < 0) {
+            ret = -errno;
+            if (ret == -EROFS)
+                ret = -EACCES;
+            return ret;
+        } else {
+            bs->read_only = 1;
+        }
     }
     s->fd = fd;
     s->aligned_buf = NULL;

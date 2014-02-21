@@ -28,6 +28,7 @@
 #include "pci.h"
 #include "sysemu.h"
 #include "qemu-xen.h"
+#include "privsep.h"
 #include "battery_mgmt.h"
 #include "qemu-log.h"
 #include "qemu-timer.h"
@@ -890,7 +891,7 @@ void acpi_php_add(int devfn)
             sprintf(ret_str, "wrong bdf or vdevfn");
 
         if ( strlen(ret_str) > 0 )
-            xenstore_record_dm("parameter", ret_str);
+            privsep_record_dm("parameter", ret_str);
 
         return;
     }
@@ -921,7 +922,7 @@ void acpi_php_add(int devfn)
 
     /* tell Control panel which devfn for the new pass-throgh dev */
     sprintf(ret_str, "0x%02x", devfn);
-    xenstore_record_dm("parameter", ret_str);
+    privsep_record_dm("parameter", ret_str);
 
     /* signal the CP ACPI hot insert done */
     xenstore_record_dm_state("pci-inserted");

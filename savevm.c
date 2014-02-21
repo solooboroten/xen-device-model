@@ -327,6 +327,28 @@ fail:
     return NULL;
 }
 
+QEMUFile *qemu_fdopen(int fd, const char *mode)
+{
+    QEMUFileStdio *s;
+
+    s = qemu_mallocz(sizeof(QEMUFileStdio));
+
+    s->outfile = fdopen(fd, mode);
+    if (!s->outfile)
+        goto fail;
+
+    if (!strcmp(mode, "wb"))
+        return qemu_fopen_ops(s, file_put_buffer, NULL, file_close, NULL);
+    else if (!strcmp(mode, "rb"))
+        return qemu_fopen_ops(s, NULL, file_get_buffer, file_close, NULL);
+
+fail:
+    if (s->outfile)
+        fclose(s->outfile);
+    qemu_free(s);
+    return NULL;
+}
+
 typedef struct QEMUFileBdrv
 {
     BlockDriverState *bs;

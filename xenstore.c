@@ -14,6 +14,7 @@
 #include "block_int.h"
 #include <unistd.h>
 #include <assert.h>
+#include <err.h>
 
 #include "exec-all.h"
 #include "sysemu.h"
@@ -21,6 +22,7 @@
 #include "hw.h"
 #include "pci.h"
 #include "qemu-timer.h"
+#include "privsep.h"
 #include "qemu-xen.h"
 #include "console.h"
 
@@ -59,8 +61,7 @@ void xenstore_do_eject(BlockDriverState *bs)
         fprintf(stderr, "couldn't find disk to eject.\n");
         return;
     }
-    if (xenbus_param_paths[i])
-        xs_write(xsh, XBT_NULL, xenbus_param_paths[i], "eject", strlen("eject"));
+    privsep_eject_cd(i);
 }
 
 static struct {
@@ -72,9 +73,6 @@ static struct {
 void xenstore_set_device_locked(BlockDriverState *bs)
 {
     int i;
-    size_t len;
-    char *path;
-    char *val;
 
     i = xenstore_find_device(bs);
     if (i == -1) {
@@ -84,22 +82,10 @@ void xenstore_set_device_locked(BlockDriverState *bs)
     /* not a cdrom device */
     if (!xenbus_param_paths[i])
         return;
-    len = strlen(xenbus_param_paths[i]);
-    path = malloc(len + 1);
-    if (!path) {
-        fprintf(stderr, "xenstore_set_device_locked: malloc failed\n");
-        return;
-    }
-    strcpy(path, xenbus_param_paths[i]);
-    path[len - 6] = '\0';
-    strcat(path, "locked");
-
-    val = bs->locked ? "true" : "false";
-
-    if (!xs_write(xsh, XBT_NULL, path, val, strlen(val)))
-        fprintf(stderr, "xenstore_set_device_locked: xs_write for %s fail", path);
-
-    free(path);
+    if (bs->locked)
+        privsep_lock_cd(i);
+    else
+        privsep_unlock_cd(i);
 }
  
 #define UWAIT_MAX (30*1000000) /* thirty seconds */
@@ -725,6 +711,7 @@ void xenstore_parse_domain_config(int hvm_domid)
             if (!strcmp(danger_type, "cdrom") || !strcmp(danger_type, "floppy")) {
                 if (pasprintf(&buf, "%s/params", bpath) != -1) {
                     char *buf2, *frontend;
+                    privsep_set_cd_backend(nb_drives, bpath);
                     xs_watch(xsh, buf, dev);
                     asprintf(&buf2, "%s/frontend", bpath);
                     frontend = xs_read(xsh, XBT_NULL, buf2, &len);
@@ -1032,7 +1019,7 @@ static void xenstore_process_logdirty_event(void)
     }
 
     /* Ack that we've service the command */
-    xs_write(xsh, XBT_NULL, ret_path, act, len);
+    privsep_ack_logdirty_switch(act);
 
     free(act);
 out:
@@ -1044,21 +1031,14 @@ out:
 /* Accept state change commands from the control tools */
 static void xenstore_process_dm_command_event(void)
 {
-    char *path = NULL, *command = NULL, *par = NULL;
+    char *command = NULL, *par = NULL;
     unsigned int len;
 
-    if (pasprintf(&path, 
-                  "/local/domain/0/device-model/%u/command", domid) == -1) {
-        fprintf(logfile, "out of memory reading dm command\n");
-        goto out;
-    }
-    command = xs_read(xsh, XBT_NULL, path, &len);
+    command = privsep_read_dm("command");
     if (!command)
         goto out;
+    len = strlen(command);
     
-    if (!xs_rm(xsh, XBT_NULL, path))
-        fprintf(logfile, "xs_rm failed: path=%s\n", path);
-
     if (!strncmp(command, "save", len)) {
         fprintf(logfile, "dm-command: pause and save state\n");
         xen_pause_requested = 1;
@@ -1066,43 +1046,28 @@ static void xenstore_process_dm_command_event(void)
         fprintf(logfile, "dm-command: continue after state save\n");
         xen_pause_requested = 0;
     } else if (!strncmp(command, "usb-add", len)) {
-        fprintf(logfile, "dm-command: usb-add a usb device\n");
-        if (pasprintf(&path,
-                "/local/domain/0/device-model/%u/parameter", domid) == -1) {
-            fprintf(logfile, "out of memory reading dm command parameter\n");
-            goto out;
-        }
-        par = xs_read(xsh, XBT_NULL, path, &len);
-        fprintf(logfile, "dm-command: usb-add a usb device: %s \n", par);
+        fprintf(logfile, "dm-command: usb-add usb device\n");
+        par = privsep_read_dm("parameter");
         if (!par)
             goto out;
         do_usb_add(par);
         xenstore_record_dm_state("usb-added");
         fprintf(logfile, "dm-command: finish usb-add a usb device:%s\n",par);
+        free(par);
     } else if (!strncmp(command, "usb-del", len)) {
         fprintf(logfile, "dm-command: usb-del a usb device\n");
-        if (pasprintf(&path,
-                "/local/domain/0/device-model/%u/parameter", domid) == -1) {
-            fprintf(logfile, "out of memory reading dm command parameter\n");
-            goto out;
-        }
-        par = xs_read(xsh, XBT_NULL, path, &len);
-        fprintf(logfile, "dm-command: usb-del a usb device: %s \n", par);
+        par = privsep_read_dm("parameter");
         if (!par)
             goto out;
         do_usb_del(par);
         xenstore_record_dm_state("usb-deleted");
         fprintf(logfile, "dm-command: finish usb-del a usb device:%s\n",par);
+        free(par);
 #ifdef CONFIG_PASSTHROUGH
     } else if (!strncmp(command, "pci-rem", len)) {
         fprintf(logfile, "dm-command: hot remove pass-through pci dev \n");
 
-        if (pasprintf(&path, 
-                      "/local/domain/0/device-model/%u/parameter", domid) == -1) {
-            fprintf(logfile, "out of memory reading dm command parameter\n");
-            goto out;
-        }
-        par = xs_read(xsh, XBT_NULL, path, &len);
+        par = privsep_read_dm("parameter");
         if (!par)
             goto out;
 
@@ -1111,12 +1076,7 @@ static void xenstore_process_dm_command_event(void)
     } else if (!strncmp(command, "pci-ins", len)) {
         fprintf(logfile, "dm-command: hot insert pass-through pci dev \n");
 
-        if (pasprintf(&path, 
-                      "/local/domain/0/device-model/%u/parameter", domid) == -1) {
-            fprintf(logfile, "out of memory reading dm command parameter\n");
-            goto out;
-        }
-        par = xs_read(xsh, XBT_NULL, path, &len);
+        par = privsep_read_dm("parameter");
         if (!par)
             goto out;
 
@@ -1128,24 +1088,7 @@ static void xenstore_process_dm_command_event(void)
     }
 
  out:
-    free(path);
     free(command);
-}
-
-void xenstore_record_dm(const char *subpath, const char *state)
-{
-    char *path = NULL;
-
-    if (pasprintf(&path, 
-                  "/local/domain/0/device-model/%u/%s", domid, subpath) == -1) {
-        fprintf(logfile, "out of memory recording dm \n");
-        goto out;
-    }
-    if (!xs_write(xsh, XBT_NULL, path, state, strlen(state)))
-        fprintf(logfile, "error recording dm \n");
-
- out:
-    free(path);
 }
 
 int
@@ -1213,7 +1156,7 @@ xenstore_pv_driver_build_blacklisted(uint16_t product_nr,
 
 void xenstore_record_dm_state(const char *state)
 {
-    xenstore_record_dm("state", state);
+    privsep_record_dm("state", state);
 }
 
 static void xenstore_process_vcpu_set_event(char **vec)
@@ -1529,22 +1472,14 @@ void xenstore_write_vncport(int display)
     free(buf);
 }
 
-void xenstore_write_vslots(char *vslots)
+#ifndef CONFIG_STUBDOM
+void
+xenstore_drop_privileges(void)
 {
-    char *path = NULL;
-    int pci_devid = 0;
-
-    if (pasprintf(&path, 
-                  "/local/domain/0/backend/pci/%u/%u/vslots", domid, pci_devid) == -1) {
-        fprintf(logfile, "out of memory when updating vslots.\n");
-        goto out;
-    }
-    if (!xs_write(xsh, XBT_NULL, path, vslots, strlen(vslots)))
-        fprintf(logfile, "error updating vslots \n");
-
- out:
-    free(path);
+    if (!xs_restrict(xsh, domid))
+        err(1, "failed to restrict xenstore access");
 }
+#endif
 
 void xenstore_read_vncpasswd(int domid, char *pwbuf, size_t pwbuflen)
 {
@@ -1799,26 +1734,6 @@ char *xenstore_vm_read(int domid, const char *key, unsigned int *len)
  out:
     free(path);
     return value;
-}
-
-int xenstore_vm_write(int domid, const char *key, const char *value)
-{
-    char *path = NULL;
-    int rc = -1;
-
-    path = xenstore_vm_key_path(domid, key);
-    if (!path)
-        return 0;
-
-    rc = xs_write(xsh, XBT_NULL, path, value, strlen(value));
-    if (rc == 0) {
-        fprintf(logfile, "xs_write(%s, %s): write error\n", path, key);
-        goto out;
-    }
-
- out:
-    free(path);
-    return rc;
 }
 
 char *xenstore_device_model_read(int domid, const char *key, unsigned int *len)

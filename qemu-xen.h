@@ -70,12 +70,10 @@ int xenstore_parse_disable_pf_config(void);
 void xenstore_parse_pf_config(struct pci_config_header *pch);
 int xenstore_fd(void);
 void xenstore_process_event(void *opaque);
-void xenstore_record_dm(const char *subpath, const char *state);
 void xenstore_record_dm_state(const char *state);
 void xenstore_check_new_media_present(int timeout);
 void xenstore_write_vncport(int vnc_display);
 void xenstore_read_vncpasswd(int domid, char *pwbuf, size_t pwbuflen);
-void xenstore_write_vslots(char *vslots);
 int store_dev_info(const char *devName, int domid,
                    CharDriverState *cState, const char *storeString);
 
@@ -122,7 +120,6 @@ int xenstore_write(const char *path, const char *val);
   * at least when it comes to running our own frontends
   */
 
-int xenstore_vm_write(int domid, const char *key, const char *val);
 char *xenstore_vm_read(int domid, const char *key, unsigned int *len);
 char *xenstore_device_model_read(int domid, const char *key, unsigned int *len);
 char *xenstore_read_battery_data(int battery_status);
@@ -135,6 +132,7 @@ void xenstore_dm_finished_startup(void);
 void xenstore_set_device_locked(BlockDriverState *bs);
 void xenstore_set_guest_clipboard(const char *text, size_t len);
 unsigned int xenstore_get_cores_per_socket(int domid);
+void xenstore_drop_privileges(void);
 
 /* xenfbfront.c */
 int xenfb_pv_display_init(DisplayState *ds);

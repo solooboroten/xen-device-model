@@ -8,6 +8,7 @@
  * there is only one place where this file is included. */
 
 #include "sysemu.h"
+#include "privsep.h"
 
 /* Max number of PCI emulation */
 #define MAX_PCI_EMULATION 32
@@ -33,7 +34,7 @@ void do_savevm(const char *name)
     QEMUFile *f;
     int saved_vm_running, ret;
 
-    f = qemu_fopen(name, "wb");
+    f = privsep_open_vm_dump(name);
     
     /* ??? Should this occur after vm_stop?  */
     qemu_aio_flush();

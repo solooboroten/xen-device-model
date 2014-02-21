@@ -44,6 +44,7 @@
 #include <signal.h>
 #include <assert.h>
 #include <sys/select.h>
+#include <err.h>
 
 #include <limits.h>
 #include <fcntl.h>
@@ -60,6 +61,7 @@
 #include "qemu-timer.h"
 #include "sysemu.h"
 #include "qemu-xen.h"
+#include "privsep.h"
 
 //#define DEBUG_MMU
 
@@ -154,6 +156,10 @@ CPUX86State *cpu_x86_init(const char *cpu_model)
             }
             ioreq_local_port[i] = rc;
         }
+#ifndef CONFIG_STUBDOM
+        if (xc_evtchn_restrict(xce_handle, domid) < 0)
+            fprintf(logfile, "xc_evtchn_restrict(): %s\n", strerror(errno));
+#endif
     }
 
     return env;
@@ -163,26 +169,19 @@ CPUX86State *cpu_x86_init(const char *cpu_model)
 void cpu_reset(CPUX86State *env)
 {
     extern int s3_shutdown_flag;
-    xc_interface *xcHandle;
     int sts;
  
     if (s3_shutdown_flag)
         return;
 
-    xcHandle = xc_interface_open(0,0,0);
-    if (!xcHandle)
-        fprintf(logfile, "Cannot acquire xenctrl handle\n");
-    else {
-        xc_domain_shutdown_hook(xcHandle, domid);
-        sts = xc_domain_shutdown(xcHandle, domid, SHUTDOWN_reboot);
-        if (sts != 0)
-            fprintf(logfile,
-                    "? xc_domain_shutdown failed to issue reboot, sts %d\n",
-                    sts);
-        else
-            fprintf(logfile, "Issued domain %d reboot\n", domid);
-        xc_interface_close(xcHandle);
-    }
+    xc_domain_shutdown_hook(xc_handle, domid);
+    sts = xc_domain_shutdown(xc_handle, domid, SHUTDOWN_reboot);
+    if (sts != 0)
+        fprintf(logfile,
+                "? xc_domain_shutdown failed to issue reboot, sts %d\n",
+                sts);
+    else
+        fprintf(logfile, "Issued domain %d reboot\n", domid);
 }
 
 void cpu_x86_close(CPUX86State *env)
@@ -427,14 +426,11 @@ void timeoffset_get(void)
 
 static void cpu_ioreq_timeoffset(CPUState *env, ioreq_t *req)
 {
-    char b[64];
-
     time_offset += (unsigned long)req->data;
 
     fprintf(logfile, "Time offset set %ld, added offset %"PRId64"\n",
         time_offset, req->data);
-    sprintf(b, "%ld", time_offset);
-    xenstore_vm_write(domid, "rtc/timeoffset", b);
+    privsep_set_rtc_timeoffset(time_offset);
 }
 
 static void __handle_ioreq(CPUState *env, ioreq_t *req)
@@ -616,19 +612,12 @@ int main_loop(void)
 
 void destroy_hvm_domain(void)
 {
-    xc_interface *xcHandle;
     int sts;
  
-    xcHandle = xc_interface_open(0,0,0);
-    if (!xcHandle)
-        fprintf(logfile, "Cannot acquire xenctrl handle\n");
-    else {
-        sts = xc_domain_shutdown(xcHandle, domid, SHUTDOWN_poweroff);
-        if (sts != 0)
-            fprintf(logfile, "? xc_domain_shutdown failed to issue poweroff, "
-                    "sts %d, errno %d\n", sts, errno);
-        else
-            fprintf(logfile, "Issued domain %d poweroff\n", domid);
-        xc_interface_close(xcHandle);
-    }
+    sts = xc_domain_shutdown(xc_handle, domid, SHUTDOWN_poweroff);
+    if (sts != 0)
+        fprintf(logfile, "? xc_domain_shutdown failed to issue poweroff, "
+                "sts %d, errno %d\n", sts, errno);
+    else
+        fprintf(logfile, "Issued domain %d poweroff\n", domid);
 }

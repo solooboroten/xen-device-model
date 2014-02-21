@@ -94,6 +94,7 @@ typedef struct VncDisplay VncDisplay;
 
 struct VncDisplay
 {
+    QEMUTimer *timer;
     int lsock;
     DisplayState *ds;
     VncState *clients;
@@ -121,7 +122,6 @@ struct VncSurface
 
 struct VncState
 {
-    QEMUTimer *timer;
     int csock;
     DisplayState *ds;
     struct VncSurface guest;   /* guest visible surface (aka ds->surface) */
@@ -206,10 +206,12 @@ static void vnc_write_s32(VncState *vs, int32_t value);
 static void vnc_write_u16(VncState *vs, uint16_t value);
 static void vnc_write_u8(VncState *vs, uint8_t value);
 static void vnc_flush(VncState *vs);
-static void vnc_update_client(void *opaque);
+static void vnc_update_client(VncState *vs);
 static void vnc_client_read(void *opaque);
 static void vnc_disconnect_start(VncState *vs);
 static void vnc_disconnect_finish(VncState *vs);
+static void vnc_init_timer(VncDisplay *vd);
+static void vnc_remove_timer(VncDisplay *vd);
 
 static void vnc_colordepth(VncState *vs);
 
@@ -715,9 +717,8 @@ static int find_and_clear_dirty_height(struct VncSurface *s,
     return h;
 }
 
-static void vnc_update_client(void *opaque)
+static void vnc_update_client(VncState *vs)
 {
-    VncState *vs = opaque;
     if (vs->need_update && vs->csock != -1) {
 	int y;
         uint8_t *guest_row;
@@ -728,13 +729,9 @@ static void vnc_update_client(void *opaque)
 	int saved_offset;
 	int has_dirty = 0;
 
-        if (vs->output.offset && !vs->audio_cap && !vs->force_update) {
+        if (vs->output.offset && !vs->audio_cap && !vs->force_update)
             /* kernel send buffers are full -> drop frames to throttle */
-            qemu_mod_timer(vs->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
             return;
-        }
-
-        vga_hw_update();
 
         /*
          * Walk through the guest dirty map.
@@ -770,10 +767,8 @@ static void vnc_update_client(void *opaque)
             server_row += ds_get_linesize(vs->ds);
         }
  
-        if (!has_dirty && !vs->audio_cap && !vs->force_update) {
-	    qemu_mod_timer(vs->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
+        if (!has_dirty && !vs->audio_cap && !vs->force_update)
 	    return;
-	}
 
         /*
          * Send screen updates to the vnc client using the server
@@ -818,12 +813,8 @@ static void vnc_update_client(void *opaque)
 
     }
 
-    if (vs->csock != -1) {
-        qemu_mod_timer(vs->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
-    } else {
+    if (vs->csock == -1)
         vnc_disconnect_finish(vs);
-    }
-
 }
 
 /* audio */
@@ -1088,8 +1079,6 @@ static void vnc_disconnect_start(VncState *vs)
 
 static void vnc_disconnect_finish(VncState *vs)
 {
-    qemu_del_timer(vs->timer);
-    qemu_free_timer(vs->timer);
     if (vs->input.buffer) qemu_free(vs->input.buffer);
     if (vs->output.buffer) qemu_free(vs->output.buffer);
     audio_del(vs);
@@ -1112,6 +1101,7 @@ static void vnc_disconnect_finish(VncState *vs)
     qemu_free(vs->server.ds);
     qemu_free(vs->guest.ds);
     qemu_free(vs);
+    vnc_remove_timer(vs->vd);
 }
 
 #ifdef CONFIG_VNC_TLS
@@ -2327,6 +2317,38 @@ static int protocol_version(VncState *vs, uint8_t *version, size_t len)
     return 0;
 }
 
+static void vnc_refresh(void *opaque)
+{
+    VncDisplay *vd = opaque;
+    VncState *vs = vd->clients;
+
+    vga_hw_update();
+
+    while (vs != NULL) {
+        vnc_update_client(vs);
+        vs = vs->next;
+    }
+
+    qemu_mod_timer(vd->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
+}
+
+static void vnc_init_timer(VncDisplay *vd)
+{
+    if (vd->timer == NULL && vd->clients != NULL) {
+        vd->timer = qemu_new_timer(rt_clock, vnc_refresh, vd);
+        qemu_mod_timer(vd->timer, qemu_get_clock(rt_clock) + VNC_REFRESH_INTERVAL);
+    }
+}
+
+static void vnc_remove_timer(VncDisplay *vd)
+{
+    if (vd->timer != NULL && vd->clients == NULL) {
+        qemu_del_timer(vd->timer);
+        qemu_free_timer(vd->timer);
+        vd->timer = NULL;
+    }
+}
+
 static void vnc_connect(VncDisplay *vd, int csock)
 {
     VncState *vs = qemu_mallocz(sizeof(VncState));
@@ -2339,7 +2361,6 @@ static void vnc_connect(VncDisplay *vd, int csock)
 
     vs->vd = vd;
     vs->ds = vd->ds;
-    vs->timer = qemu_new_timer(rt_clock, vnc_update_client, vs);
     vs->last_x = -1;
     vs->last_y = -1;
 
@@ -2357,6 +2378,7 @@ static void vnc_connect(VncDisplay *vd, int csock)
     vs->next = vd->clients;
     vd->clients = vs;
 
+    vnc_init_timer(vd);
     vnc_update_client(vs);
     /* vs might be free()ed here */
 }

@@ -258,6 +258,7 @@ void *fw_cfg_init(uint32_t ctl_port, uint32_t data_port,
 
     s = qemu_mallocz(sizeof(FWCfgState));
 
+#if 0 /* No thanks!! */
     if (ctl_port) {
         register_ioport_write(ctl_port, 2, 2, fw_cfg_io_writew, s);
     }
@@ -275,6 +276,7 @@ void *fw_cfg_init(uint32_t ctl_port, uint32_t data_port,
                                            fw_cfg_data_mem_write, s);
         cpu_register_physical_memory(data_addr, FW_CFG_SIZE, io_data_memory);
     }
+#endif
     fw_cfg_add_bytes(s, FW_CFG_SIGNATURE, (uint8_t *)"QEMU", 4);
     fw_cfg_add_bytes(s, FW_CFG_UUID, qemu_uuid, 16);
     fw_cfg_add_i16(s, FW_CFG_NOGRAPHIC, (uint16_t)nographic);

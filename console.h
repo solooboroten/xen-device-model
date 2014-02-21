@@ -318,6 +318,7 @@ int vnc_display_open(DisplayState *ds, const char *display);
 int vnc_display_password(DisplayState *ds, const char *password);
 void do_info_vnc(void);
 void vnc_keymap_change(char *keymap);
+void vnc_dpy_set_clipboard(char *text);
 
 /* curses.c */
 void curses_display_init(DisplayState *ds, int full_screen);

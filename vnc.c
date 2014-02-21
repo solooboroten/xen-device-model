@@ -40,6 +40,8 @@
 #include "keymaps.c"
 #include "d3des.h"
 
+void xenstore_set_guest_clipboard(const char *text, size_t len);
+
 #ifdef CONFIG_VNC_TLS
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
@@ -1138,6 +1140,26 @@ static ssize_t vnc_tls_pull(gnutls_transport_ptr_t transport,
 
 static void client_cut_text(VncState *vs, size_t len, uint8_t *text)
 {
+    xenstore_set_guest_clipboard(text, len);
+}
+
+static void vnc_set_clipboard(VncState *vs, char *text)
+{
+    char pad[3] = { 0, 0, 0 };
+    vnc_write_u8(vs, 3);	/* ServerCutText */
+    vnc_write(vs, pad, 3);	/* padding */
+    vnc_write_u32(vs, strlen(text));	/* length */
+    vnc_write(vs, text, strlen(text));  /* text */
+    vnc_flush(vs);
+}
+
+void vnc_dpy_set_clipboard(char *text)
+{
+    VncState *vs = vnc_display->clients;
+    while (vs != NULL) {
+        vnc_set_clipboard(vs, text);
+        vs = vs->next;
+    }
 }
 
 static void check_pointer_type_change(VncState *vs, int absolute)

@@ -22,11 +22,16 @@
 #include "pci.h"
 #include "qemu-timer.h"
 #include "qemu-xen.h"
+#include "console.h"
+
+/* The token used to identify the keymap watch. */
+#define KEYMAP_TOKEN "keymap"
 
 struct xs_handle *xsh = NULL;
 static char *media_filename[MAX_DRIVES+1];
 static QEMUTimer *insert_timer = NULL;
 static char *xenbus_param_paths[MAX_DRIVES+1];
+static char *guest_path;
 
 int xenstore_find_device(BlockDriverState *bs)
 {
@@ -494,6 +499,8 @@ void xenstore_parse_domain_config(int hvm_domid)
     unsigned int len, num, hd_index, pci_devid = 0;
     BlockDriverState *bs;
     BlockDriver *format;
+    char *target_path = NULL, *target_domids = NULL;
+    int target_domid = 0;
 
     /* Read-only handling for image files */
     char *mode = NULL;
@@ -530,6 +537,21 @@ void xenstore_parse_domain_config(int hvm_domid)
         fprintf(logfile, "xs_get_domain_path() error\n");
         goto out;
     }
+
+#ifndef CONFIG_STUBDOM
+    if (pasprintf(&buf, "%s/target", danger_path) != -1)
+        target_domids = xs_read(xsh, XBT_NULL, buf, &len);
+    if (target_domids) {
+        target_domid = atoi(target_domids);
+        target_path = xs_get_domain_path(xsh, target_domid);
+        guest_path = strdup(target_path);
+    } else {
+        guest_path = strdup(danger_path);
+    }
+
+    if (pasprintf(&buf, "%s/keymap", guest_path) != -1)
+        xs_watch(xsh, buf, KEYMAP_TOKEN); // Ignore failure -- we can muddle on.
+#endif
 
     if (pasprintf(&danger_buf, "%s/device/vbd", danger_path) == -1)
         goto out;
@@ -837,6 +859,8 @@ void xenstore_parse_domain_config(int hvm_domid)
     free(danger_buf);
     free(danger_path);
     free(e_danger);
+    free(target_path);
+    free(target_domids);
     free(drv);
     return;
 }
@@ -1201,6 +1225,14 @@ void xenstore_process_event(void *opaque)
     if (!strcmp(vec[XS_WATCH_TOKEN], "dm-command")) {
         xenstore_process_dm_command_event();
         goto out;
+    }
+
+    if (!strcmp(vec[XS_WATCH_TOKEN], KEYMAP_TOKEN)) {
+	image = xs_read(xsh, XBT_NULL, vec[XS_WATCH_PATH], &len);
+ 	if (image == NULL)
+ 	    goto out;
+	vnc_keymap_change(image);
+	goto out;
     }
 
     if (!strcmp(vec[XS_WATCH_TOKEN], "logdirty")) {

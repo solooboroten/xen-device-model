@@ -2472,6 +2472,28 @@ static void vnc_listen_read(void *opaque)
     }
 }
 
+void vnc_keymap_change(char *keymap)
+{
+    kbd_layout_t *new_layout;
+
+    if (keyboard_layout && !strcmp(keymap, keyboard_layout))
+        return;
+
+    new_layout = init_keyboard_layout(keymap);
+    if (!new_layout) {
+        fprintf(stderr, "Failed to initialise new keyboard layout\n");
+        return;
+    }
+
+    fprintf(stderr, "Initialise new keyboard layout %s\n", keymap);
+
+    qemu_free(keyboard_layout);
+    qemu_free(vnc_display->kbd_layout);
+
+    keyboard_layout = strdup(keymap);
+    vnc_display->kbd_layout = new_layout;
+}
+
 void vnc_display_init(DisplayState *ds)
 {
     VncDisplay *vs = qemu_mallocz(sizeof(*vs));

@@ -317,6 +317,7 @@ void vnc_display_close(DisplayState *ds);
 int vnc_display_open(DisplayState *ds, const char *display);
 int vnc_display_password(DisplayState *ds, const char *password);
 void do_info_vnc(void);
+void vnc_keymap_change(char *keymap);
 
 /* curses.c */
 void curses_display_init(DisplayState *ds, int full_screen);

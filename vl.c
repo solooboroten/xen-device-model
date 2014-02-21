@@ -205,7 +205,7 @@ static DisplayState *display_state;
 int nographic;
 static int curses;
 static int sdl;
-const char* keyboard_layout = NULL;
+char* keyboard_layout = NULL;
 int64_t ticks_per_sec;
 ram_addr_t ram_size;
 int nb_nics;
@@ -5270,7 +5270,7 @@ int main(int argc, char **argv, char **envp)
                 autostart = 0;
                 break;
 	    case QEMU_OPTION_k:
-		keyboard_layout = optarg;
+		keyboard_layout = strdup(optarg);
 		break;
             case QEMU_OPTION_localtime:
                 rtc_utc = 0;

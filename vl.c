@@ -5778,6 +5778,8 @@ int main(int argc, char **argv, char **envp)
        fprintf(stderr,"Defaulting vram to 4MB\n");
        vga_ram_size = 4 * 1024 * 1024;
     }
+    if (!vga_ram_size)
+        vga_ram_size = 8 * 1024 * 1024;
 
     phys_ram_size = (machine->ram_require + vga_ram_size) & ~RAMSIZE_FIXED;
 

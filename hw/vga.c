@@ -2236,11 +2236,12 @@ static int vga_load(QEMUFile *f, void *opaque, int version_id)
     VGAState *s = opaque;
     int is_vbe, ret;
     uint32_t vram_size;
+    uint32_t map_addr = 0;
 #ifdef CONFIG_BOCHS_VBE
     int i;
 #endif
 
-    if (version_id > 4)
+    if (version_id > 6)
         return -EINVAL;
 
     if (s->pci_dev && version_id >= 2) {
@@ -2291,13 +2292,17 @@ static int vga_load(QEMUFile *f, void *opaque, int version_id)
 	qemu_get_be32s(f, &vram_size);
 	if (vram_size != s->vram_size)
 	    return -EINVAL;
+        if (version_id == 5) {
+            map_addr = qemu_get_be32(f);
+            qemu_get_be32(f);
+        }
         if (version_id >= 4) {
             qemu_get_be64s(f, &s->vram_gmfn);
-            if (s->vram_gmfn)
-                xen_vga_vram_map(s->vram_gmfn, s->vram_size);
+            if (s->vram_gmfn || map_addr)
+                xen_vga_vram_map(map_addr ? map_addr : s->vram_gmfn, s->vram_size);
         }
         /* Old guest, VRAM is not mapped, we have to restore it ourselves */
-        if (!s->vram_gmfn) {
+        if (!s->vram_gmfn && !map_addr) {
             xen_vga_populate_vram(VRAM_RESERVED_ADDRESS, s->vram_size);
             s->vram_gmfn = VRAM_RESERVED_ADDRESS;
             qemu_get_buffer(f, s->vram_ptr, s->vram_size); 
@@ -2602,7 +2607,7 @@ static void vga_init(VGAState *s)
 {
     int vga_io_memory;
 
-    register_savevm("vga", 0, 4, vga_save, vga_load, s);
+    register_savevm("vga", 0, 6, vga_save, vga_load, s);
 
     register_ioport_write(0x3c0, 16, 1, vga_ioport_write, s);
 

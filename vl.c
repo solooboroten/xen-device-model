@@ -59,6 +59,7 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <zlib.h>
+#include <err.h>
 
 #ifndef _WIN32
 #include <pwd.h>
@@ -4321,6 +4322,8 @@ enum {
     QEMU_OPTION_incoming,
     QEMU_OPTION_chroot,
     QEMU_OPTION_runas,
+    QEMU_OPTION_crashdump_dir,
+    QEMU_OPTION_crashdump_quota,
 };
 
 typedef struct QEMUOption {
@@ -4472,6 +4475,8 @@ static const QEMUOption qemu_options[] = {
     { "incoming", HAS_ARG, QEMU_OPTION_incoming },
     { "chroot", HAS_ARG, QEMU_OPTION_chroot },
     { "runas", HAS_ARG, QEMU_OPTION_runas },
+    { "dumpdir", HAS_ARG, QEMU_OPTION_crashdump_dir },
+    { "dumpquota", HAS_ARG, QEMU_OPTION_crashdump_quota },
     { NULL },
 };
 
@@ -4826,7 +4831,8 @@ int main(int argc, char **argv, char **envp)
     struct passwd *pwd = NULL;
     const char *chroot_dir = NULL;
     const char *run_as = NULL;
-
+    char *crashdump_dir = NULL;
+    long long crashdump_quota = 0;
     qemu_cache_utils_init(envp);
     logfile = stderr; /* initial value */
 
@@ -5586,6 +5592,14 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_gfx_passthru:
                 select_vgahw("passthrough");
                 break;
+            case QEMU_OPTION_crashdump_dir:
+                crashdump_dir = (char *) optarg;
+                fprintf(logfile, "qemu: crashdump dir is %s\n", crashdump_dir);
+                break;
+            case QEMU_OPTION_crashdump_quota:
+                crashdump_quota = strtoll(optarg, NULL, 0);
+                fprintf(logfile, "qemu: crashdump quota is %lldMB\n", crashdump_quota);
+                break;
             }
         }
     }
@@ -5861,6 +5875,15 @@ int main(int argc, char **argv, char **envp)
 
     register_savevm("timer", 0, 2, timer_save, timer_load, NULL);
     register_savevm_live("ram", 0, 3, ram_save_live, NULL, ram_load, NULL);
+
+    if (crashdump_quota != 0 && !crashdump_dir) {
+        fprintf(stderr, "can only set crashdump quota if crashdump dir also set\n");
+        exit(1);
+    }
+
+    if (crashdump_dir) {
+        setup_crashdump(crashdump_dir, crashdump_quota);
+    }
 
 #ifndef _WIN32
 #ifndef CONFIG_DM

@@ -144,4 +144,7 @@ int has_tpm_device_danger(void);
 static void vga_dirty_log_start(void *s) { }
 static void vga_dirty_log_stop(void *s) { }
 
+/* crashdump.c */
+void setup_crashdump(const char *crashdump_dir, long long crashdump_quota);
+
 #endif /*QEMU_XEN_H*/

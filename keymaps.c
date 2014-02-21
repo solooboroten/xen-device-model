@@ -51,7 +51,6 @@ typedef struct {
     struct key_range *numlock_range;
     struct key_range *shift_range;
     struct key_range *localstate_range;
-    struct key_range *altgr_range;
 } kbd_layout_t;
 
 static void del_key_range(struct key_range **krp, int code) {
@@ -251,16 +250,3 @@ static inline int keycode_is_shiftable(void *kbd_layout, int keycode)
 	    return 0;
     return 1;
 }
-
-static inline int keysym_is_altgr(void *kbd_layout, int keysym)
-{
-    kbd_layout_t *k = kbd_layout;
-    struct key_range *kr;
-
-    for (kr = k->altgr_range; kr; kr = kr->next)
-        if (keysym >= kr->start && keysym <= kr->end){
-            return 1;
-	}
-    return 0;
-}
-

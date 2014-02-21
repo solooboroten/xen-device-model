@@ -144,12 +144,6 @@ static kbd_layout_t *parse_keyboard_layout(const char *language,
 			add_to_key_range(&k->localstate_range, keycode);
 			//fprintf(stderr, "localstate keysym %04x keycode %d\n", keysym, keycode);
 		    }
-		    if (rest && strstr(rest, "altgr")) {
-			add_to_key_range(&k->altgr_range, keysym);
-			//fprintf(stderr, "altgr keysym %04x keycode %d\n", keysym, keycode);
-		    } else {
-			del_key_range(&k->altgr_range, keysym);
-		    }
 	
 		    /* if(keycode&0x80)
 		       keycode=(keycode<<8)^0x80e0; */

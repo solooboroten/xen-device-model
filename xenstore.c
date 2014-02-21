@@ -892,7 +892,7 @@ int xenstore_parse_disable_pf_config ()
     int disable_pf = 0;
     unsigned int len;
 
-    if (pasprintf(&buf, "/local/domain/0/device-model/%u/disable_pf",domid) == -1)
+    if (pasprintf(&buf, "/local/domain/%u/vm-data/disable_pf",domid) == -1)
         goto out;
 
     params = xs_read(xsh, XBT_NULL, buf, &len);

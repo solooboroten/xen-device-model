@@ -977,6 +977,10 @@ static int fdctrl_media_changed(fdrive_t *drv)
 
     if (!drv->bs)
         return 0;
+    /* Floppy drives always return media-changed if the media isn't
+       present. */
+    if (!bdrv_is_inserted(drv->bs))
+        return 1;
     ret = bdrv_media_changed(drv->bs);
     if (ret) {
         fd_revalidate(drv);

@@ -188,20 +188,27 @@ static int parse_drive_name(const char *dev, DriveInfo *out) {
     /* if drive name not understood, returns -1 and *out may be garbage */
     int ch, max, per_bus;
 
-    /* Change xvdN to look like hdN */
-    if (!any_hdN && !strncmp(dev, "xvd", 3) && strlen(dev) == 4) {
-        ch = dev[3];
-        fprintf(logfile, "Using %s for guest's hd%c\n", dev, ch);
-        out->type = IF_IDE;
-    } else if (!strncmp(dev, "hd", 2) && strlen(dev) == 3) {
+    if (!strncmp(dev, "fd", 2) && strlen(dev) == 3) {
         ch = dev[2];
-        out->type = IF_IDE;
-    } else if (!strncmp(dev, "sd", 2) && strlen(dev) == 3) {
-        ch = dev[2];
-        out->type = IF_SCSI;
+        out->type = IF_FLOPPY;
+        max = 2;
+        per_bus = 2;
     } else {
-        fprintf(stderr, "qemu: ignoring not-understood drive `%s'\n", dev);
-        return -1;
+        /* Change xvdN to look like hdN */
+        if (!any_hdN && !strncmp(dev, "xvd", 3) && strlen(dev) == 4) {
+            ch = dev[3];
+            fprintf(logfile, "Using %s for guest's hd%c\n", dev, ch);
+            out->type = IF_IDE;
+        } else if (!strncmp(dev, "hd", 2) && strlen(dev) == 3) {
+            ch = dev[2];
+            out->type = IF_IDE;
+        } else if (!strncmp(dev, "sd", 2) && strlen(dev) == 3) {
+            ch = dev[2];
+            out->type = IF_SCSI;
+        } else {
+            fprintf(stderr, "qemu: ignoring not-understood drive `%s'\n", dev);
+            return -1;
+        }
     }
 
     if (out->type == IF_SCSI) {
@@ -596,16 +603,21 @@ void xenstore_parse_domain_config(int hvm_domid)
 
         bs = bdrv_new(dev);
         /* check if it is a cdrom */
-        if (danger_type && !strcmp(danger_type, "cdrom")) {
-            bdrv_set_type_hint(bs, BDRV_TYPE_CDROM);
-            if (pasprintf(&buf, "%s/params", bpath) != -1) {
-                char *buf2, *frontend;
-                xs_watch(xsh, buf, dev);
-                asprintf(&buf2, "%s/frontend", bpath);
-                frontend = xs_read(xsh, XBT_NULL, buf2, &len);
-                asprintf(&xenbus_param_paths[nb_drives], "%s/eject", frontend);
-                free(frontend);
-                free(buf2);
+        if (danger_type) {
+            if (!strcmp(danger_type, "cdrom"))
+                bdrv_set_type_hint(bs, BDRV_TYPE_CDROM);
+            if (!strcmp(danger_type, "floppy"))
+                bdrv_set_type_hint(bs, BDRV_TYPE_FLOPPY);
+            if (!strcmp(danger_type, "cdrom") || !strcmp(danger_type, "floppy")) {
+                if (pasprintf(&buf, "%s/params", bpath) != -1) {
+                    char *buf2, *frontend;
+                    xs_watch(xsh, buf, dev);
+                    asprintf(&buf2, "%s/frontend", bpath);
+                    frontend = xs_read(xsh, XBT_NULL, buf2, &len);
+                    asprintf(&xenbus_param_paths[nb_drives], "%s/eject", frontend);
+                    free(frontend);
+                    free(buf2);
+                }
             }
         }
 

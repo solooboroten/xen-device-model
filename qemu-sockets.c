@@ -163,6 +163,7 @@ int inet_listen(const char *str, char *ostr, int olen,
 
     /* create socket + bind */
     for (e = res; e != NULL; e = e->ai_next) {
+rebind:
 	getnameinfo((struct sockaddr*)e->ai_addr,e->ai_addrlen,
 		    uaddr,INET6_ADDRSTRLEN,uport,32,
 		    NI_NUMERICHOST | NI_NUMERICSERV);
@@ -186,8 +187,19 @@ int inet_listen(const char *str, char *ostr, int olen,
                 if (sockets_debug)
                     fprintf(stderr,"%s: bind(%s,%s,%d): OK\n", __FUNCTION__,
                             inet_strfamily(e->ai_family), uaddr, inet_getport(e));
-                goto listen;
-            }
+                if (listen(slisten,1) == 0) {
+		    goto listened;
+		} else {
+		    int err = errno;
+
+		    perror("listen");
+		    closesocket(slisten);
+		    if (err == EADDRINUSE)
+		        goto rebind;
+		    freeaddrinfo(res);
+		    return -1;
+		}
+	    }
             try_next = to && (inet_getport(e) <= to + port_offset);
             if (!try_next || sockets_debug)
                 fprintf(stderr,"%s: bind(%s,%s,%d): %s\n", __FUNCTION__,
@@ -205,12 +217,7 @@ int inet_listen(const char *str, char *ostr, int olen,
     freeaddrinfo(res);
     return -1;
 
-listen:
-    if (listen(slisten,1) != 0) {
-        perror("listen");
-        closesocket(slisten);
-        return -1;
-    }
+listened:
     if (ostr) {
         if (e->ai_family == PF_INET6) {
             snprintf(ostr, olen, "[%s]:%d%s", uaddr,

@@ -1708,6 +1708,8 @@ cirrus_hook_write_cr(CirrusVGAState * s, unsigned reg_index, int reg_value)
             int line_offset, start_addr, line_compare;
             s->get_resolution((VGAState *)s, &width, &height);
             s->get_offsets((VGAState *)s, &line_offset, &start_addr, &line_compare);
+            /* Windows expects off-screen areas initialized to 0xff */
+            memset(s->vram_ptr, 0xff, s->vram_size);
             memset (s->vram_ptr + (start_addr * 4), 0x00, line_offset * height);
             cr1b = s->cr[0x1b];
             fprintf(stderr, "cirrus: blanking the screen line_offset=%d height=%d\n", line_offset, height);

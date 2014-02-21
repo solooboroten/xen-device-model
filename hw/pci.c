@@ -877,15 +877,19 @@ void pci_unplug_all_netifs(void)
     }
 }
 
-int pci_unplug_nic(int i)
+int pci_unplug_nic(int devfn)
 {
     NICInfo *nd;
     PCIDevice *pci_dev;
+    int index;
 
-    if (i >= nb_nics)
+    nd = NULL;
+    for (index = 0; index < nb_nics; index++)
+        if (nd_table[index].devfn == devfn)
+            nd = &nd_table[index];
+
+    if (nd == NULL)
         return -1;
-
-    nd = &nd_table[i];
 
     if (!nd->used)
         return -1;

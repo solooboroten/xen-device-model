@@ -1592,9 +1592,26 @@ static int nic_get_free_idx(void)
     int index;
 
     for (index = 0; index < MAX_NICS; index++)
-        if (!nd_table[index].used)
+        if (!nd_table[index].used) {
+            nd_table[index].devfn = -1;
             return index;
+        }
     return -1;
+}
+
+static void nic_tap_fix_devfn(VLANState *vlan, const char *ifname)
+{
+    int index;
+    unsigned tap, vif;
+
+    if (sscanf(ifname, "tap%u.%u", &tap, &vif) != 2 || vif >= 256)
+        return;
+
+    for (index = 0; index < MAX_NICS; index++)
+        if (nd_table[index].used && nd_table[index].vlan == vlan) {
+            nd_table[index].devfn = (4+vif)*8;
+            break;
+        }
 }
 
 void qemu_check_nic_model(NICInfo *nd, const char *model)
@@ -1767,6 +1784,7 @@ int net_client_init(const char *device, const char *p)
                 pstrcpy(script_arg, sizeof(script_arg), "");
             }
             ret = net_tap_init(vlan, device, name, ifname, setup_script, down_script, script_arg);
+            nic_tap_fix_devfn(vlan, ifname);
         }
     } else
 #endif

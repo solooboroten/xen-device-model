@@ -245,12 +245,16 @@ version_2_unplug(uint8_t type, uint8_t index)
 
     switch (type) {
     case UNPLUG_TYPE_IDE:
+        fprintf(logfile, "UNPLUG: IDE\n");
+
         ide_unplug_harddisk(index);
         break;
     case UNPLUG_TYPE_NIC: {
         int id;
 
-        if ((id = pci_unplug_nic(index)) >= 0)
+        fprintf(logfile, "UNPLUG: NIC\n");
+
+        if ((id = pci_unplug_nic((4+index)*8)) >= 0)
             net_tap_shutdown_vlan(id);
 
         break;

@@ -1081,7 +1081,7 @@ vga_bios_error:
         if (!pci_enabled || (nd->model && strcmp(nd->model, "ne2k_isa") == 0))
             pc_init_ne2k_isa(nd, i8259);
         else
-            pci_nic_init(pci_bus, nd, -1, "ne2k_pci");
+            pci_nic_init(pci_bus, nd, nd->devfn > 0 ? nd->devfn : -1, "ne2k_pci");
     }
 
     qemu_system_hot_add_init();

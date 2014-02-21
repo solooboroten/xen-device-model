@@ -67,6 +67,7 @@ struct NICInfo {
     VLANState *vlan;
     void *private;
     int used;
+    int devfn;
 };
 
 extern int nb_nics;

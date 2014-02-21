@@ -1,6 +1,6 @@
 QEMU_ROOT ?= .
 XEN_ROOT ?= $(QEMU_ROOT)/../xen-unstable.hg
-include $(XEN_ROOT)/tools/Rules.mk
+include $(QEMU_ROOT)/Rules.mk
 
 ifdef CONFIG_STUBDOM
 export TARGET_DIRS=i386-stubdom

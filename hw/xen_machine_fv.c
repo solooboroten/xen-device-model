@@ -65,6 +65,7 @@ TAILQ_HEAD(map_cache_head, map_cache_rev) locked_entries = TAILQ_HEAD_INITIALIZE
 /* For most cases (>99.9%), the page address is the same. */
 static unsigned long last_address_index = ~0UL;
 static uint8_t      *last_address_vaddr;
+static DECLARE_BITMAP(last_valid_mapping, MCACHE_BUCKET_SIZE>>XC_PAGE_SHIFT);
 
 static int qemu_map_cache_init(void)
 {
@@ -138,7 +139,8 @@ uint8_t *qemu_map_cache(target_phys_addr_t phys_addr, uint8_t lock)
     unsigned long address_index  = phys_addr >> MCACHE_BUCKET_SHIFT;
     unsigned long address_offset = phys_addr & (MCACHE_BUCKET_SIZE-1);
 
-    if (address_index == last_address_index && !lock)
+    if (address_index == last_address_index && !lock && 
+               test_bit(address_offset>>XC_PAGE_SHIFT, last_valid_mapping))
         return last_address_vaddr + address_offset;
 
     entry = &mapcache_entry[address_index % nr_buckets];
@@ -158,11 +160,13 @@ uint8_t *qemu_map_cache(target_phys_addr_t phys_addr, uint8_t lock)
 
     if (!test_bit(address_offset>>XC_PAGE_SHIFT, entry->valid_mapping)) {
         last_address_index = ~0UL;
+        memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
         return NULL;
     }
 
     last_address_index = address_index;
     last_address_vaddr = entry->vaddr_base;
+    memcpy(last_valid_mapping, entry->valid_mapping, sizeof(last_valid_mapping));
     if (lock) {
         struct map_cache_rev *reventry = qemu_mallocz(sizeof(struct map_cache_rev));
         entry->lock++;
@@ -181,8 +185,10 @@ void qemu_invalidate_entry(uint8_t *buffer)
     unsigned long paddr_index;
     int found = 0;
     
-    if (last_address_vaddr == buffer)
+    if (last_address_vaddr == buffer) {
         last_address_index =  ~0UL;
+        memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
+    }
 
     TAILQ_FOREACH(reventry, &locked_entries, next) {
         if (reventry->vaddr_req == buffer) {
@@ -254,6 +260,7 @@ void qemu_invalidate_map_cache(void)
 
     last_address_index =  ~0UL;
     last_address_vaddr = NULL;
+    memset(last_valid_mapping, 0, sizeof(last_valid_mapping));
 
     mapcache_unlock();
 }
